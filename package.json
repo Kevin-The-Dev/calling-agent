@@ -1,0 +1,33 @@
+{
+  "name": "calling-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI voice cold calling sales agent — MVP",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "packageManager": "pnpm@11.10.0",
+  "scripts": {
+    "dev": "pnpm --parallel --filter \"./{frontend,backend}\" dev",
+    "dev:backend": "pnpm --filter backend dev",
+    "dev:frontend": "pnpm --filter frontend dev",
+    "build": "pnpm --filter \"./{frontend,backend}\" build",
+    "typecheck": "pnpm --filter \"./{frontend,backend}\" typecheck",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "pnpm --filter backend test",
+    "verify": "pnpm typecheck && pnpm lint && pnpm test",
+    "db:bundle": "node scripts/build-migration-bundle.mjs",
+    "db:push": "npx supabase db push",
+    "db:types": "npx supabase gen types typescript --linked > backend/src/types/database.ts"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.17.0",
+    "eslint": "^9.17.0",
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.18.0"
+  }
+}

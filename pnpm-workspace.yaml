@@ -1,0 +1,11 @@
+packages:
+  - 'frontend'
+  - 'backend'
+# pnpm blocks postinstall scripts by default. Both of these are first-party
+# native binaries from packages we depend on directly and both need their
+# install script to fetch the correct platform binary:
+#   esbuild — bundler behind tsx (backend dev) and vitest
+#   sharp   — image optimization used by Next.js
+allowBuilds:
+  esbuild: true
+  sharp: true

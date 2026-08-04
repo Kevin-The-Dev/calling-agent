@@ -1,0 +1,45 @@
+# ── secrets ──────────────────────────────────────────────────────────────────
+# Never commit these. Only the .env.example templates are tracked.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# ── dependencies ─────────────────────────────────────────────────────────────
+node_modules/
+.pnpm-store/
+
+# ── build output ─────────────────────────────────────────────────────────────
+.next/
+out/
+dist/
+build/
+*.tsbuildinfo
+
+# ── test / coverage ──────────────────────────────────────────────────────────
+coverage/
+playwright-report/
+test-results/
+.vitest/
+
+# ── tooling ──────────────────────────────────────────────────────────────────
+.vercel
+.turbo
+.eslintcache
+venv/
+
+# ── os / editor ──────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/*
+!.vscode/settings.json
+
+# ── local artifacts ──────────────────────────────────────────────────────────
+*.log
+npm-debug.log*
+pnpm-debug.log*
+recordings/
+tmp/
