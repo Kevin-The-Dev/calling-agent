@@ -7,7 +7,7 @@ import {
   WarningCircleIcon,
 } from '@phosphor-icons/react/dist/ssr';
 import { api, ApiError, ApiUnreachableError } from '@/lib/api';
-import { getPublicEnv } from '@/lib/env';
+import { describeApiBaseUrlProblem, getPublicEnv } from '@/lib/env';
 
 type State =
   | { kind: 'loading' }
@@ -27,6 +27,15 @@ export function SystemStatus() {
 
   useEffect(() => {
     let cancelled = false;
+
+    // Checked before the request, not after it fails. A base URL with a path
+    // still reaches a real server and gets a real 404 back, so the failure that
+    // follows describes the wrong thing entirely.
+    const misconfigured = describeApiBaseUrlProblem();
+    if (misconfigured) {
+      setState({ kind: 'error', message: misconfigured });
+      return;
+    }
 
     api
       .health()

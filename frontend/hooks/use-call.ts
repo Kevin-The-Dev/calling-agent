@@ -19,7 +19,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { fetchApi } from '@/lib/api';
-import { getPublicEnv } from '@/lib/env';
+import { describeApiBaseUrlProblem, getPublicEnv } from '@/lib/env';
 import {
   createListener,
   createSpeaker,
@@ -317,6 +317,15 @@ export function useCall(): UseCallResult {
     const capability = support ?? detectSupport();
     if (!capability.supported) {
       setError(capability.reason ?? 'This browser cannot run a voice call.');
+      return;
+    }
+
+    // Same pre-check the status pill makes. Worth repeating here because the
+    // call button is reachable without ever reading that pill, and a bad base
+    // URL would otherwise fail after the microphone prompt.
+    const misconfigured = describeApiBaseUrlProblem();
+    if (misconfigured) {
+      setError(misconfigured);
       return;
     }
 
