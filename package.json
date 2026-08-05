@@ -1,6 +1,6 @@
 {
   "name": "calling-agent",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "private": true,
   "description": "AI voice cold calling sales agent — MVP",
   "engines": {
