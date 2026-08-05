@@ -25,6 +25,8 @@ function makeState(overrides: Partial<CallState> = {}): CallState {
     disqualifiedReason: null,
     doNotContact: false,
     outcome: null,
+    appointment: null,
+    beats: { sgip: false, pitch: false },
     ...overrides,
   };
 }
@@ -42,6 +44,12 @@ const QUALIFIED_LEAD: Lead = {
 
 const opts = { maxAirCycles: 2 };
 
+const SLOT = {
+  at: '2026-08-11T21:00:00.000Z',
+  timezone: 'America/Los_Angeles',
+  conflictChecked: true,
+};
+
 describe('stage progression', () => {
   it('advances one stage at a time', () => {
     const result = nextStage(makeState({ stage: 'opening' }), {
@@ -53,8 +61,9 @@ describe('stage progression', () => {
 
   it('refuses to skip stages, advancing only one step instead', () => {
     // The model asking to jump straight from rapport to booking is exactly the
-    // failure the state machine exists to prevent.
-    const result = nextStage(makeState({ stage: 'rapport' }), {
+    // failure the state machine exists to prevent. SGIP is already named here so
+    // this isolates the no-skip rule from the beat gate below.
+    const result = nextStage(makeState({ stage: 'rapport', beats: { sgip: true, pitch: false } }), {
       ...opts,
       proposedStage: 'appointment',
     });
@@ -126,13 +135,22 @@ describe('decision-maker gate', () => {
     expect(result.stage).toBe('appointment');
   });
 
-  it('opens once they are known', () => {
+  it('opens once they are known and a slot is agreed', () => {
+    const lead = { ...QUALIFIED_LEAD, decision_makers: [{ name: 'Alex' }] };
+    const result = nextStage(
+      makeState({ stage: 'appointment', lead, appointment: SLOT }),
+      { ...opts, proposedStage: 'confirmation' },
+    );
+    expect(result.stage).toBe('confirmation');
+  });
+
+  it('holds at booking until a slot is actually agreed', () => {
     const lead = { ...QUALIFIED_LEAD, decision_makers: [{ name: 'Alex' }] };
     const result = nextStage(makeState({ stage: 'appointment', lead }), {
       ...opts,
       proposedStage: 'confirmation',
     });
-    expect(result.stage).toBe('confirmation');
+    expect(result.stage).toBe('appointment');
   });
 
   // A one-person household has one decision maker, not none. Recording the
@@ -143,23 +161,38 @@ describe('decision-maker gate', () => {
       ...QUALIFIED_LEAD,
       decision_makers: [{ name: 'Sam', relationship: 'self' }],
     };
-    const result = nextStage(makeState({ stage: 'appointment', lead }), opts);
+    const result = nextStage(makeState({ stage: 'appointment', lead, appointment: SLOT }), opts);
     expect(result.stage).toBe('confirmation');
   });
 });
+
+const AGREED = {
+  at: '2026-08-11T21:00:00.000Z',
+  timezone: 'America/Los_Angeles',
+  conflictChecked: true,
+};
 
 describe('confirmation → closing', () => {
   const BOOKED = { ...QUALIFIED_LEAD, decision_makers: [{ name: 'Alex' }] };
 
   it('holds at confirmation until a contact number has been captured', () => {
-    const result = nextStage(makeState({ stage: 'confirmation', lead: BOOKED }), opts);
-    expect(result.stage).toBe('confirmation');
+    const state = makeState({ stage: 'confirmation', lead: BOOKED, appointment: AGREED });
+    expect(nextStage(state, opts).stage).toBe('confirmation');
   });
 
-  it('advances on its own once the number is known', () => {
+  // A call that volunteered its number early used to jump straight to the
+  // recap, before any time had been proposed — recapping an appointment that
+  // did not exist.
+  it('holds at confirmation until a slot has actually been agreed', () => {
     const lead = { ...BOOKED, phone: '5105551212' };
-    const result = nextStage(makeState({ stage: 'confirmation', lead }), opts);
-    expect(result.stage).toBe('closing');
+    const state = makeState({ stage: 'confirmation', lead, appointment: null });
+    expect(nextStage(state, { ...opts, proposedStage: 'closing' }).stage).toBe('confirmation');
+  });
+
+  it('advances on its own once both are known', () => {
+    const lead = { ...BOOKED, phone: '5105551212' };
+    const state = makeState({ stage: 'confirmation', lead, appointment: AGREED });
+    expect(nextStage(state, opts).stage).toBe('closing');
   });
 });
 
@@ -325,7 +358,15 @@ describe('full happy-path walk', () => {
     ];
 
     let state = makeState({
-      lead: { ...QUALIFIED_LEAD, decision_makers: [{ name: 'Alex', will_attend: true }] },
+      lead: {
+        ...QUALIFIED_LEAD,
+        phone: '5105551212',
+        decision_makers: [{ name: 'Alex', will_attend: true }],
+      },
+      appointment: SLOT,
+      // The walk assumes an agent that says what each beat requires; the two
+      // gates below cover the one that does not.
+      beats: { sgip: true, pitch: true },
     });
 
     for (const target of path) {
@@ -335,5 +376,62 @@ describe('full happy-path walk', () => {
     }
 
     expect(state.stage).toBe('closing');
+  });
+});
+
+describe('spoken-beat gates', () => {
+  it('holds rapport until SGIP has actually been named', () => {
+    // Caught in end-to-end testing: the agent asked about the letter, the stage
+    // advanced on turn count, and SGIP was never said at any point in the call —
+    // so the prospect was asked about their bill with no reason to answer.
+    const held = nextStage(makeState({ stage: 'rapport', turnCount: 6 }), {
+      ...opts,
+      proposedStage: 'qualification',
+    });
+
+    expect(held.stage).toBe('rapport');
+    expect(held.rejectedProposal).toBe('qualification');
+  });
+
+  it('releases rapport on the turn that names SGIP', () => {
+    const state = makeState({ stage: 'rapport', beats: { sgip: true, pitch: false } });
+
+    // Both routes out: the model proposing it, and the server noticing.
+    expect(nextStage(state, { ...opts, proposedStage: 'qualification' }).stage).toBe(
+      'qualification',
+    );
+    expect(nextStage(state, { ...opts, proposedStage: null }).stage).toBe('qualification');
+  });
+
+  it('holds value_pitch until the bill swap has been delivered', () => {
+    const state = makeState({ stage: 'value_pitch', lead: QUALIFIED_LEAD });
+
+    const held = nextStage(state, { ...opts, proposedStage: 'appointment' });
+    expect(held.stage).toBe('value_pitch');
+
+    // Previously this auto-advanced unconditionally, so an agent that skipped
+    // the pitch reached booking anyway.
+    expect(nextStage(state, { ...opts, proposedStage: null }).stage).toBe('value_pitch');
+  });
+
+  it('releases value_pitch once the swap is delivered', () => {
+    const state = makeState({
+      stage: 'value_pitch',
+      lead: QUALIFIED_LEAD,
+      beats: { sgip: true, pitch: true },
+    });
+
+    expect(nextStage(state, { ...opts, proposedStage: 'appointment' }).stage).toBe('appointment');
+  });
+
+  it('does not let a stage skip past an undelivered beat', () => {
+    // "appointment" proposed from "rapport" already collapses to one step
+    // forward; that one step is still gated.
+    const result = nextStage(makeState({ stage: 'rapport' }), {
+      ...opts,
+      proposedStage: 'appointment',
+    });
+
+    expect(result.stage).toBe('rapport');
   });
 });

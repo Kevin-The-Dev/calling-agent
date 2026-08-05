@@ -78,6 +78,17 @@ const envSchema = z
     LLM_TEMPERATURE: z.coerce.number().min(0).max(2).default(0.6),
     LLM_MAX_TOKENS: intFromString(300),
     LLM_TIMEOUT_MS: intFromString(15_000),
+    /**
+     * How long a reply may go silent mid-sentence before it is cut short.
+     *
+     * `LLM_TIMEOUT_MS` covers the whole request, which is the right budget for
+     * a call that has not started producing anything. Once the prospect is
+     * already hearing the reply it is far too long: a stream that stalls after
+     * the first sentence held the microphone for the full fifteen seconds and
+     * then delivered nothing more, which is the worst outcome available. Five
+     * seconds of silence mid-reply is a stall, not a pause.
+     */
+    LLM_STREAM_STALL_MS: intFromString(5_000),
 
     GLM_API_KEY: optionalString,
     GLM_BASE_URL: optionalString,

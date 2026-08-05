@@ -1,13 +1,13 @@
 import Link from 'next/link';
 import {
-  ArrowRight,
-  CalendarCheck,
-  MessageSquareWarning,
-  PhoneCall,
-  Radio,
-  TrendingUp,
-  Users,
-} from 'lucide-react';
+  ArrowRightIcon,
+  BroadcastIcon,
+  CalendarCheckIcon,
+  HandPalmIcon,
+  PhoneCallIcon,
+  TrendUpIcon,
+  UsersIcon,
+} from '@phosphor-icons/react/dist/ssr';
 import { createClient } from '@/lib/supabase/server';
 import {
   Badge,
@@ -84,7 +84,7 @@ export default async function DashboardPage() {
 
   const calls = totalCalls ?? 0;
   const booked = bookedCount ?? 0;
-  const bookingRate = calls > 0 ? `${Math.round((booked / calls) * 100)}%` : '—';
+  const bookingRate = calls > 0 ? `${Math.round((booked / calls) * 100)}%` : '-';
 
   // Ordered by the state machine, not by count — the shape of where calls die
   // is the whole point, and sorting by size destroys it.
@@ -123,27 +123,27 @@ export default async function DashboardPage() {
           label="Calls"
           value={calls}
           hint={`${liveCalls ?? 0} active right now`}
-          icon={<PhoneCall className="size-4" />}
+          icon={<PhoneCallIcon className="size-4" />}
         />
         <StatTile
           label="Leads"
           value={totalLeads ?? 0}
           hint="One per conversation started"
-          icon={<Users className="size-4" />}
+          icon={<UsersIcon className="size-4" />}
         />
         <StatTile
           label="Booked"
           value={booked}
           hint={`${bookingRate} of all calls`}
-          icon={<CalendarCheck className="size-4" />}
-          tone="pine"
+          icon={<CalendarCheckIcon className="size-4" />}
+          tone="booked"
         />
         <StatTile
           label="Booking rate"
           value={bookingRate}
           hint={calls > 0 ? `${booked} of ${calls} calls` : 'No calls yet'}
-          icon={<TrendingUp className="size-4" />}
-          tone="solar"
+          icon={<TrendUpIcon className="size-4" />}
+          tone="accent"
         />
       </section>
 
@@ -152,23 +152,23 @@ export default async function DashboardPage() {
         <Card>
           <CardHead
             title="Recent calls"
-            icon={<Radio className="size-4 text-ink-3" />}
+            icon={<BroadcastIcon className="size-4 text-ink-3" />}
             action={
               <Link
                 href="/dashboard/calls"
-                className="inline-flex items-center gap-1 text-[12.5px] font-medium text-ink-3 transition-colors hover:text-solar-deep"
+                className="inline-flex items-center gap-1 text-[12.5px] font-medium text-ink-3 transition-colors hover:text-accent-deep"
               >
                 All calls
-                <ArrowRight className="size-3.5" />
+                <ArrowRightIcon className="size-3.5" />
               </Link>
             }
           />
 
           {!recentCalls || recentCalls.length === 0 ? (
             <EmptyState
-              icon={<PhoneCall className="size-6" />}
+              icon={<PhoneCallIcon className="size-6" />}
               title="No calls yet"
-              copy="Open the call console and start a conversation — it appears here the moment it begins."
+              copy="Open the call console and start a conversation. It appears here the moment it begins."
             />
           ) : (
             <ul className="divide-y divide-line">
@@ -220,7 +220,7 @@ export default async function DashboardPage() {
         <div className="space-y-6">
           {/* ── Stage drop-off ───────────────────────────────────────────── */}
           <Card>
-            <CardHead title="Where calls end" icon={<TrendingUp className="size-4 text-ink-3" />} />
+            <CardHead title="Where calls end" icon={<TrendUpIcon className="size-4 text-ink-3" />} />
 
             {stageRows.length === 0 ? (
               <EmptyState
@@ -236,7 +236,7 @@ export default async function DashboardPage() {
                     </span>
                     <span className="relative h-5 flex-1 overflow-hidden rounded-md bg-sunk">
                       <span
-                        className="absolute inset-y-0 left-0 rounded-md bg-solar/70"
+                        className="absolute inset-y-0 left-0 rounded-md bg-accent/70"
                         style={{ width: `${(reached / stageMax) * 100}%` }}
                       />
                     </span>
@@ -253,7 +253,7 @@ export default async function DashboardPage() {
           <Card>
             <CardHead
               title="Most common objections"
-              icon={<MessageSquareWarning className="size-4 text-ink-3" />}
+              icon={<HandPalmIcon className="size-4 text-ink-3" />}
             />
 
             {!objections || objections.length === 0 ? (
@@ -291,21 +291,21 @@ export default async function DashboardPage() {
       <Card>
         <CardHead
           title="Qualified leads"
-          icon={<Users className="size-4 text-ink-3" />}
+          icon={<UsersIcon className="size-4 text-ink-3" />}
           action={
             <Link
               href="/dashboard/leads"
-              className="inline-flex items-center gap-1 text-[12.5px] font-medium text-ink-3 transition-colors hover:text-solar-deep"
+              className="inline-flex items-center gap-1 text-[12.5px] font-medium text-ink-3 transition-colors hover:text-accent-deep"
             >
               All leads
-              <ArrowRight className="size-3.5" />
+              <ArrowRightIcon className="size-3.5" />
             </Link>
           }
         />
 
         {!hotLeads || hotLeads.length === 0 ? (
           <EmptyState
-            icon={<Users className="size-6" />}
+            icon={<UsersIcon className="size-6" />}
             title="Nothing qualified yet"
             copy="Leads scoring 50 or above appear here, highest first."
           />

@@ -4,13 +4,17 @@
   "private": true,
   "type": "module",
   "description": "Hono API for the AI voice sales agent — deployed as Vercel Functions",
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc --noEmit",
     "start": "tsx src/index.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "knowledge:build": "node scripts/generate-knowledge.mjs"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.7",

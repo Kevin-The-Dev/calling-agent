@@ -34,7 +34,7 @@ const PHASE_COLOR: Record<CallPhase, string> = {
   connecting: 'var(--color-think)',
   listening: 'var(--color-live)',
   thinking: 'var(--color-think)',
-  speaking: 'var(--color-solar)',
+  speaking: 'var(--color-accent)',
   ended: 'var(--color-ink-4)',
 };
 
@@ -127,7 +127,7 @@ export function VoiceOrb({ phase, readLevel }: VoiceOrbProps) {
       >
         <defs>
           <radialGradient id="orb-core" cx="38%" cy="32%">
-            <stop offset="0%" stopColor="#fff" stopOpacity="0.9" />
+            <stop offset="0%" stopColor="var(--color-surface)" stopOpacity="0.95" />
             <stop offset="55%" stopColor={color} stopOpacity="0.22" />
             <stop offset="100%" stopColor={color} stopOpacity="0.1" />
           </radialGradient>

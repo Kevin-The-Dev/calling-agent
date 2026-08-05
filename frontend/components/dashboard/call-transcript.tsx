@@ -98,7 +98,7 @@ export function CallTranscript({ turns }: CallTranscriptProps) {
     <div className="scroll-slim max-h-[36rem] space-y-4 overflow-y-auto p-5">
       {synced && (
         <p className="sticky top-0 z-10 -mx-5 -mt-5 mb-1 border-b border-line bg-surface/95 px-5 py-2 text-[11.5px] leading-relaxed text-ink-3 backdrop-blur">
-          Following the recording. The assistant is silent in the audio — its half of the call is
+          Following the recording. The assistant is silent in the audio, so its half of the call is
           here. Select any turn to jump the recording to it.
         </p>
       )}
@@ -127,7 +127,7 @@ export function CallTranscript({ turns }: CallTranscriptProps) {
                 isAgent
                   ? 'rounded-tl-sm border border-line bg-surface text-ink'
                   : 'rounded-tr-sm bg-ink text-paper'
-              } ${isActive ? 'ring-2 ring-solar ring-offset-2 ring-offset-paper' : ''}`}
+              } ${isActive ? 'ring-2 ring-accent ring-offset-2 ring-offset-paper' : ''}`}
             >
               {turn.content}
             </p>
@@ -146,7 +146,7 @@ export function CallTranscript({ turns }: CallTranscriptProps) {
                 onClick={() => playback?.seek(startMs)}
                 aria-label={`Play from ${formatOffset(startMs)}`}
                 aria-current={isActive ? 'true' : undefined}
-                className="max-w-[85%] cursor-pointer rounded-2xl text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-solar"
+                className="max-w-[85%] cursor-pointer rounded-2xl text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               >
                 {bubble}
               </button>

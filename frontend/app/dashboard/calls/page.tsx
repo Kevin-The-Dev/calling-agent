@@ -1,5 +1,8 @@
 import Link from 'next/link';
-import { AudioLines, PhoneCall } from 'lucide-react';
+import {
+  PhoneCallIcon,
+  WaveformIcon,
+} from '@phosphor-icons/react/dist/ssr';
 import { createClient } from '@/lib/supabase/server';
 import {
   Badge,
@@ -49,7 +52,7 @@ export default async function CallsPage() {
       <Card className="overflow-hidden">
         {rows.length === 0 ? (
           <EmptyState
-            icon={<PhoneCall className="size-6" />}
+            icon={<PhoneCallIcon className="size-6" />}
             title="No calls yet"
             copy="Start one from the call console and it appears here immediately."
           />
@@ -81,10 +84,10 @@ export default async function CallsPage() {
                           {lead?.name ?? 'Unnamed lead'}
                           {recordings.length > 0 && (
                             <span
-                              className="inline-flex items-center gap-1 text-[11.5px] font-normal text-solar-deep"
+                              className="inline-flex items-center gap-1 text-[11.5px] font-normal text-accent-deep"
                               title="Recording available"
                             >
-                              <AudioLines className="size-3.5" />
+                              <WaveformIcon className="size-3.5" />
                               Recorded
                             </span>
                           )}

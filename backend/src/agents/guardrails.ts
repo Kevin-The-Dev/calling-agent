@@ -45,12 +45,15 @@ const BANNED_CLAIMS: { pattern: RegExp; rule: string }[] = [
   // relationship with a utility is invented.
   { pattern: /\bpartner (?:provider|utility|compan)/i, rule: 'invented_partnership' },
   // Any claimed relationship with the prospect's utility is invented — the
-  // knowledge base describes no such arrangement. Caught twice in E2E testing
-  // as "PG&E is one of our partner providers" / "one of the providers we work
-  // with", so the pattern covers the paraphrase too.
+  // knowledge base describes no such arrangement. Caught three times in E2E
+  // testing: "PG&E is one of our partner providers", "one of the providers we
+  // work with", and — straight through an earlier, tighter version of this
+  // rule — "that's one of the most common providers we work with". Anchoring on
+  // the exact words between "the" and "providers" was the mistake; the claim is
+  // the noun and the verb, and anything may sit between them.
   {
     pattern:
-      /\b(?:is|are) (?:one of )?(?:the |our )?(?:providers?|utilities|companies) (?:we|that we) (?:work|partner|deal) with\b/i,
+      /\b(?:providers?|utilit(?:y|ies)|power compan(?:y|ies)|compan(?:y|ies))\b[^.?!]{0,24}\bwe (?:work|partner|deal) with\b/i,
     rule: 'invented_partnership',
   },
   { pattern: /\bwe (?:work|partner) (?:with|directly with) (?:your |the )?(?:utility|power company)\b/i, rule: 'invented_partnership' },
@@ -96,6 +99,100 @@ export function countQuestions(text: string): number {
     }
     return true;
   }).length;
+}
+
+/**
+ * Assistant-speak.
+ *
+ * None of these is a lie or a policy breach, which is why the prompt alone
+ * never fully removed them — the model has no reason to think "I'd be happy to
+ * help with that" is wrong. On a phone call it is the giveaway: a setter working
+ * a neighborhood does not talk like a help desk, and the moment one of these
+ * lands the prospect knows they are talking to software.
+ *
+ * Stripped rather than blocked. The rest of the reply is usually fine, and
+ * discarding it would cost a real turn to remove a stock phrase.
+ */
+const CHATBOT_TELLS: RegExp[] = [
+  /\b(?:certainly|absolutely|of course)[,!]?\s*i(?:'d| would)\s+be\s+(?:happy|glad|delighted)\s+to\b[^.!?]*[.!?]/gi,
+  /\bi(?:'d| would)\s+be\s+(?:happy|glad|delighted)\s+to\s+(?:help|assist)\b[^.!?]*[.!?]/gi,
+  /\bhow (?:can|may) i (?:assist|help)(?: you)?(?: today)?\s*\?/gi,
+  /\bis there anything else i can (?:help|assist)[^.!?]*[?.!]/gi,
+  /\bi(?:'m| am) here to (?:help|assist)\b[^.!?]*[.!?]/gi,
+  /\bi hope (?:this|that) helps\b[^.!?]*[.!?]/gi,
+  /\b(?:please )?feel free to (?:ask|reach out|let me know)\b[^.!?]*[.!?]/gi,
+  /\bthank you for (?:your |the |that )?(?:question|inquiry|enquiry|information|interest)\b[^.!?]*[.!?]/gi,
+  /\bi understand your concern\b[^.!?]*[.!?]/gi,
+];
+
+/**
+ * Words a person on a phone does not use, and what they say instead.
+ *
+ * Rewritten rather than blocked, because the sentence around them is usually
+ * fine and discarding a whole turn to remove one word costs a real exchange.
+ *
+ * "Chat" is the one that matters. Nobody cold-calling a street says "is this a
+ * good time to chat" — that is chat-window vocabulary, and hearing it out loud
+ * is the moment the prospect works out what they are talking to. The prompt asks
+ * for all of this too; the prompt is persuasion and this is the enforcement.
+ */
+const SPOKEN_SUBSTITUTIONS: { pattern: RegExp; replacement: string }[] = [
+  { pattern: /\bchit-?chat\b/gi, replacement: 'talk' },
+  { pattern: /\bchatting\b/gi, replacement: 'talking' },
+  { pattern: /\bchatted\b/gi, replacement: 'spoke' },
+  // "a quick chat" / "a brief chat" → "a quick word", which is what is meant.
+  { pattern: /\ba (quick|brief|short|little) chat\b/gi, replacement: 'a $1 word' },
+  { pattern: /\bchats\b/gi, replacement: 'talks' },
+  { pattern: /\bchat\b/gi, replacement: 'talk' },
+  { pattern: /\bassist you\b/gi, replacement: 'help you' },
+  { pattern: /\bhow may I\b/gi, replacement: 'how can I' },
+];
+
+/**
+ * Asking to be allowed to carry on.
+ *
+ * The script never does this — a setter working a neighbourhood opens by saying
+ * why they are there, not by requesting an audience. Every one of these hands
+ * the prospect a one-word way to end the call before anything has been said,
+ * and "sorry to bother you" concedes that the call is a nuisance in the first
+ * sentence. Dropped whole, since what follows them still stands on its own.
+ */
+const PERMISSION_ASKS: RegExp[] = [
+  /\b(?:is|would) (?:this|now) (?:be )?a (?:good|bad|convenient) time\b[^.!?]*[.!?]/gi,
+  /\bdo you have (?:a|just a|got a) (?:quick )?(?:minute|moment|second|sec)\b[^.!?]*[.!?]/gi,
+  /\b(?:have you got|got) a (?:quick )?(?:minute|moment|second|sec)\b[^.!?]*[.!?]/gi,
+  /\b(?:i'?m |i am )?sorry (?:to|for) (?:bother|bothering|disturb|disturbing|trouble|troubling)(?: you)?\b[^.!?]*[.!?]/gi,
+  /\b(?:can|could|may) i (?:steal|borrow|take) (?:a|just a) (?:minute|moment|few minutes|second)\b[^.!?]*[.!?]/gi,
+  /\bdo you mind if i ask\b[^.!?]*[?]/gi,
+];
+
+/** Removes stock assistant phrasing. Returns the text and whether anything went. */
+function stripChatbotTells(text: string): { text: string; stripped: boolean } {
+  let out = text;
+  for (const pattern of CHATBOT_TELLS) {
+    // The patterns are global, so lastIndex has to be reset between calls.
+    pattern.lastIndex = 0;
+    out = out.replace(pattern, ' ');
+  }
+
+  for (const pattern of PERMISSION_ASKS) {
+    pattern.lastIndex = 0;
+    out = out.replace(pattern, ' ');
+  }
+
+  for (const { pattern, replacement } of SPOKEN_SUBSTITUTIONS) {
+    pattern.lastIndex = 0;
+    out = out.replace(pattern, replacement);
+  }
+
+  // A dropped sentence can leave the leftover punctuation of the one before it.
+  out = out
+    .replace(/\s{2,}/g, ' ')
+    .replace(/\s+([,.!?])/g, '$1')
+    .replace(/^[\s,;:—-]+/, '')
+    .trim();
+
+  return { text: out, stripped: out !== text };
 }
 
 /** Strips anything that looks like structured output leaking into speech. */
@@ -172,6 +269,16 @@ export function applyGuardrails(
   const violations: GuardrailViolation[] = [];
 
   let text = stripStructuredOutput(raw);
+
+  const tells = stripChatbotTells(text);
+  if (tells.stripped) {
+    text = tells.text;
+    violations.push({
+      rule: 'assistant_phrasing',
+      detail: 'Reply used stock assistant phrasing; removed before speaking.',
+      severity: 'rewrite',
+    });
+  }
 
   for (const { pattern, rule } of BANNED_CLAIMS) {
     if (pattern.test(text)) {

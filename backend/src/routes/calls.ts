@@ -171,6 +171,7 @@ export function callRoutes(env: Env, provider: LlmProvider) {
       utterance,
       history,
       identity,
+      isCallStart,
     });
 
     return streamSSE(c, async (stream) => {
@@ -178,6 +179,12 @@ export function callRoutes(env: Env, provider: LlmProvider) {
         for await (const sentence of sentences) {
           await stream.writeSSE({ event: 'sentence', data: JSON.stringify({ text: sentence }) });
         }
+
+        // The agent has said everything it is going to say. Told now, the client
+        // can hand the microphone back the moment the last sentence finishes
+        // playing, instead of waiting on the extractor call and three database
+        // writes that the prospect has no reason to sit through.
+        await stream.writeSSE({ event: 'speech-end', data: '{}' });
 
         const turn = await result;
 
@@ -325,12 +332,14 @@ export function callRoutes(env: Env, provider: LlmProvider) {
     const history = await loadHistory(env, callId);
     const summary = await summarize(provider, history, state.lead.name ?? null);
 
-    const outcome = resolveFinalOutcome(state);
-    await endCall(env, { ...state, outcome }, summary);
+    // `endCall` may upgrade this to 'booked' — only it knows whether an
+    // appointment row actually satisfied its constraints.
+    const provisional = resolveFinalOutcome(state);
+    const outcome = await endCall(env, { ...state, outcome: provisional }, summary, history);
 
     dropCallContext(callId);
 
-    return c.json({ ok: true, outcome, summary });
+    return c.json({ ok: true, outcome, summary, appointment: state.appointment ?? null });
   });
 
   return app;

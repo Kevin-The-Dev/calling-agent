@@ -270,6 +270,8 @@ export type Database = {
       calls: {
         Row: {
           agent_settings_id: string | null
+          appointment_at: string | null
+          appointment_timezone: string | null
           buying_intent: Database["public"]["Enums"]["buying_intent"]
           campaign_id: string | null
           consent_at: string | null
@@ -296,6 +298,8 @@ export type Database = {
         }
         Insert: {
           agent_settings_id?: string | null
+          appointment_at?: string | null
+          appointment_timezone?: string | null
           buying_intent?: Database["public"]["Enums"]["buying_intent"]
           campaign_id?: string | null
           consent_at?: string | null
@@ -324,6 +328,8 @@ export type Database = {
         }
         Update: {
           agent_settings_id?: string | null
+          appointment_at?: string | null
+          appointment_timezone?: string | null
           buying_intent?: Database["public"]["Enums"]["buying_intent"]
           campaign_id?: string | null
           consent_at?: string | null

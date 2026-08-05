@@ -1,82 +1,138 @@
 @import 'tailwindcss';
 
 /* ─────────────────────────────────────────────────────────────────────────────
- * Design tokens — "Daylight"
+ * Design tokens — "Signal"
  *
- * A warm, paper-toned light theme. The product is a conversation about someone's
- * electricity bill, held in their kitchen at 10am, and the surface should feel
- * like that rather than like a developer tool: warm neutrals instead of blue-grey,
- * a burnt-marigold accent taken from late sun rather than a generic amber, and a
- * deep pine reserved for the one thing that actually matters — a booked
- * appointment.
+ * The product is a conversation about the electricity coming into someone's
+ * house, so the surface is cool, quiet and high-contrast: a bone-grey page, a
+ * near-black with a blue cast rather than a warm one, and a single saturated
+ * signal blue that reads as current.
  *
- * Every colour below is a token. Nothing in a component hardcodes a hex.
+ * One accent. Everything else is neutral. The four signal colours below are not
+ * a second palette: they carry live call state (listening, thinking, speaking,
+ * failed) and appear nowhere that is not reporting one of those. Booked is the
+ * single exception and exists because it is the one outcome the whole product
+ * is built to produce.
+ *
+ * Every colour is a token. Nothing in a component hardcodes a hex.
+ *
+ * Values are redeclared under `prefers-color-scheme: dark` and `[data-theme]`
+ * further down. Tailwind v4 theme variables are ordinary custom properties, so
+ * overriding them there re-tints every utility without a `dark:` variant on
+ * every element.
  * ───────────────────────────────────────────────────────────────────────────── */
 @theme {
-  /* Surfaces — warm, never pure white except where a card must lift off paper */
-  --color-paper: #fbf9f5;
-  --color-paper-deep: #f4f0e7;
+  /* Surfaces — cool bone, with white reserved for what lifts off the page */
+  --color-paper: #f5f6f8;
+  --color-paper-deep: #eceef2;
   --color-surface: #ffffff;
-  --color-sunk: #f7f4ed;
+  --color-sunk: #f0f2f5;
 
-  /* Ink — warm near-black, so text sits *on* the paper rather than over it */
-  --color-ink: #16130e;
-  --color-ink-2: #4a4437;
-  --color-ink-3: #8a8172;
-  --color-ink-4: #b5ad9d;
+  /* Ink — near-black with a blue cast, so type belongs to the same light */
+  --color-ink: #0d1117;
+  --color-ink-2: #3c4654;
+  --color-ink-3: #667283;
+  --color-ink-4: #97a2b0;
 
   /* Structure */
-  --color-line: #e7e1d5;
-  --color-line-strong: #d5cdbc;
+  --color-line: #e1e5ec;
+  --color-line-strong: #c9d1dc;
 
-  /* Accent — late-afternoon sun, not a stock amber */
-  --color-solar: #e4650a;
-  --color-solar-deep: #b84c04;
-  --color-solar-wash: #fdefdf;
-  --color-solar-line: #f3d3ad;
+  /* The one accent */
+  --color-accent: #1b4dd8;
+  --color-accent-deep: #1339a8;
+  --color-accent-wash: #ebefff;
+  --color-accent-line: #c2cff8;
 
   /* Reserved for the outcome the whole product exists to produce */
-  --color-pine: #12463a;
-  --color-pine-wash: #e4efe9;
+  --color-booked: #0f6d4a;
+  --color-booked-wash: #e4f1ec;
 
-  /* Signals */
-  --color-live: #1c8f52;
-  --color-live-wash: #e3f2e8;
-  --color-think: #c98a06;
-  --color-think-wash: #fdf1d8;
-  --color-alert: #b8362a;
-  --color-alert-wash: #fbe9e6;
+  /* Live call state. Semantic only. */
+  --color-live: #12805a;
+  --color-live-wash: #e5f2ec;
+  --color-think: #9a6300;
+  --color-think-wash: #fbf0dc;
+  --color-alert: #bb2f22;
+  --color-alert-wash: #fdeae7;
 
   /* Typography */
-  --font-display: var(--font-fraunces), 'Iowan Old Style', Georgia, serif;
-  --font-sans: var(--font-instrument), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, monospace;
+  --font-display: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, 'SF Mono', Menlo, monospace;
 
-  /* Elevation — warm-tinted, because a grey shadow on warm paper reads as dirt */
-  --shadow-sm: 0 1px 2px rgb(60 46 24 / 0.05);
-  --shadow-card: 0 1px 2px rgb(60 46 24 / 0.04), 0 8px 24px -12px rgb(60 46 24 / 0.16);
-  --shadow-lift: 0 2px 4px rgb(60 46 24 / 0.05), 0 20px 48px -20px rgb(60 46 24 / 0.28);
+  /* Elevation — tinted to the page, never neutral black on a cool ground */
+  --shadow-sm: 0 1px 2px rgb(13 17 23 / 0.05);
+  --shadow-card: 0 1px 2px rgb(13 17 23 / 0.04), 0 8px 24px -14px rgb(13 17 23 / 0.18);
+  --shadow-lift: 0 2px 4px rgb(13 17 23 / 0.05), 0 20px 44px -22px rgb(13 17 23 / 0.3);
   --shadow-console:
-    0 2px 6px rgb(60 46 24 / 0.05), 0 32px 64px -28px rgb(60 46 24 / 0.34),
-    0 0 0 1px rgb(60 46 24 / 0.05);
+    0 2px 6px rgb(13 17 23 / 0.05), 0 32px 64px -32px rgb(13 17 23 / 0.36),
+    0 0 0 1px rgb(13 17 23 / 0.05);
 
-  --radius-console: 1.75rem;
+  /* Shape scale. Containers 20px, controls full-pill, inner elements 10px.
+     One documented rule, applied everywhere. */
+  --radius-console: 1.25rem;
 
   /* Motion */
   --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-in-out-soft: cubic-bezier(0.65, 0, 0.35, 1);
 
-  --animate-rise: rise 0.7s var(--ease-out-soft) both;
-  --animate-fade: fade 0.5s var(--ease-out-soft) both;
+  --animate-rise: rise 0.6s var(--ease-out-soft) both;
+  --animate-fade: fade 0.4s var(--ease-out-soft) both;
   --animate-halo: halo 2.4s var(--ease-in-out-soft) infinite;
-  --animate-blink: blink 1.6s var(--ease-in-out-soft) infinite;
-  --animate-drift: drift 22s ease-in-out infinite;
+  --animate-sweep: sweep 1.6s var(--ease-in-out-soft) infinite;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * Dark
+ *
+ * Not an inversion. The dark page is its own set of surfaces: the ground drops
+ * below the cards rather than the cards darkening, and the accent lightens
+ * because #1b4dd8 on a near-black ground fails contrast at body size.
+ * ───────────────────────────────────────────────────────────────────────────── */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-paper: #0c1015;
+    --color-paper-deep: #080b0f;
+    --color-surface: #151b23;
+    --color-sunk: #10161d;
+
+    --color-ink: #e9edf3;
+    --color-ink-2: #b3bdca;
+    --color-ink-3: #8a95a4;
+    --color-ink-4: #626d7b;
+
+    --color-line: #222b36;
+    --color-line-strong: #35404e;
+
+    --color-accent: #7d9dff;
+    --color-accent-deep: #a7bcff;
+    --color-accent-wash: #16203a;
+    --color-accent-line: #2c3d6b;
+
+    --color-booked: #4cc294;
+    --color-booked-wash: #10241d;
+
+    --color-live: #40bd8b;
+    --color-live-wash: #10241c;
+    --color-think: #d6a441;
+    --color-think-wash: #241c0d;
+    --color-alert: #f08379;
+    --color-alert-wash: #2a1512;
+
+    --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
+    --shadow-card: 0 1px 2px rgb(0 0 0 / 0.3), 0 8px 24px -14px rgb(0 0 0 / 0.7);
+    --shadow-lift: 0 2px 4px rgb(0 0 0 / 0.35), 0 20px 44px -22px rgb(0 0 0 / 0.8);
+    --shadow-console:
+      0 2px 6px rgb(0 0 0 / 0.35), 0 32px 64px -32px rgb(0 0 0 / 0.85),
+      0 0 0 1px rgb(255 255 255 / 0.06);
+  }
 }
 
 @keyframes rise {
   from {
     opacity: 0;
-    transform: translateY(14px);
+    transform: translateY(12px);
   }
   to {
     opacity: 1;
@@ -106,26 +162,13 @@
   }
 }
 
-@keyframes blink {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.35;
-  }
-}
-
-/* Slow drift for the atmospheric gradient behind the hero. */
-@keyframes drift {
+/* Indeterminate progress that is not a spinning circle. */
+@keyframes sweep {
   0% {
-    transform: translate3d(-2%, 0, 0) scale(1.05);
-  }
-  50% {
-    transform: translate3d(2%, -1.5%, 0) scale(1.12);
+    transform: translateX(-100%);
   }
   100% {
-    transform: translate3d(-2%, 0, 0) scale(1.05);
+    transform: translateX(300%);
   }
 }
 
@@ -133,14 +176,8 @@
  * Base
  * ───────────────────────────────────────────────────────────────────────────── */
 
-/*
- * Light only, deliberately.
- * `color-scheme: light` also stops the browser from auto-darkening form
- * controls and scrollbars for users whose OS sits in dark mode — which is what
- * otherwise leaves a light page with black inputs.
- */
 :root {
-  color-scheme: light;
+  color-scheme: light dark;
 }
 
 html {
@@ -172,51 +209,84 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Fraunces is a variable font with optical-size and "wonk" axes. Turning them
-   up at display sizes is the whole reason to use it — flat defaults would make
-   it just another serif. */
+/* Display type is the same family at a tighter fit. Weight and tracking carry
+   the hierarchy, not a second typeface. */
 .font-display {
-  font-variation-settings:
-    'SOFT' 22,
-    'WONK' 1,
-    'opsz' 108;
-  letter-spacing: -0.021em;
+  font-family: var(--font-display);
+  letter-spacing: -0.03em;
+  font-feature-settings: 'ss01' 1;
+}
+
+/* Long-form copy only. Headlines get `text-balance` inline where they need it. */
+p {
+  text-wrap: pretty;
 }
 
 ::selection {
-  background: var(--color-solar-wash);
-  color: var(--color-solar-deep);
+  background: var(--color-accent-wash);
+  color: var(--color-accent-deep);
 }
 
 :focus-visible {
-  outline: 2px solid var(--color-solar);
+  outline: 2px solid var(--color-accent);
   outline-offset: 2px;
   border-radius: 3px;
+}
+
+/* Keyboard users get to the console without walking the whole nav. */
+.skip-link {
+  position: absolute;
+  left: 1rem;
+  top: -4rem;
+  z-index: 60;
+  border-radius: 0.625rem;
+  background: var(--color-ink);
+  color: var(--color-paper);
+  padding: 0.625rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: top 160ms var(--ease-out-soft);
+}
+.skip-link:focus {
+  top: 1rem;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
  * Texture
  *
- * Flat colour reads as unfinished at this scale. These are the layers that make
- * the page feel like a surface: a fine grain over everything, and a warm light
- * source behind the hero.
+ * Flat colour reads as unfinished at this scale. A fine grain over everything
+ * and a hairline rule grid under the console are the two layers that make the
+ * page feel like a surface rather than a fill.
  * ───────────────────────────────────────────────────────────────────────────── */
 
-/* Fractal-noise grain, inlined as a data URI so it costs no request. */
 .texture-grain::before {
   content: '';
   position: absolute;
   inset: 0;
   pointer-events: none;
-  opacity: 0.4;
+  opacity: 0.35;
   mix-blend-mode: multiply;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.28'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.26'/%3E%3C/svg%3E");
 }
 
-/* Fine dot grid — a drafting-table cue under the console. */
-.texture-grid {
-  background-image: radial-gradient(circle at 1px 1px, var(--color-line-strong) 1px, transparent 0);
-  background-size: 22px 22px;
+/* Grain multiplies to mud on a dark ground; screen keeps it as light noise. */
+@media (prefers-color-scheme: dark) {
+  .texture-grain::before {
+    mix-blend-mode: screen;
+    opacity: 0.16;
+  }
+}
+
+/* Horizontal rules at the type baseline. A meter-reading cue, and unlike a dot
+   grid it lines up with the text sitting on it. */
+.texture-rule {
+  background-image: repeating-linear-gradient(
+    to bottom,
+    var(--color-line) 0,
+    var(--color-line) 1px,
+    transparent 1px,
+    transparent 12px
+  );
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -250,29 +320,42 @@ body {
 /* Staggered page-load reveal. One orchestrated entrance beats a dozen
    scattered micro-interactions. */
 .stagger > * {
-  animation: rise 0.7s var(--ease-out-soft) both;
+  animation: rise 0.6s var(--ease-out-soft) both;
 }
 .stagger > *:nth-child(1) {
   animation-delay: 0.02s;
 }
 .stagger > *:nth-child(2) {
-  animation-delay: 0.09s;
+  animation-delay: 0.08s;
 }
 .stagger > *:nth-child(3) {
-  animation-delay: 0.16s;
+  animation-delay: 0.14s;
 }
 .stagger > *:nth-child(4) {
-  animation-delay: 0.23s;
+  animation-delay: 0.2s;
 }
 .stagger > *:nth-child(5) {
-  animation-delay: 0.3s;
+  animation-delay: 0.26s;
 }
 .stagger > *:nth-child(6) {
-  animation-delay: 0.37s;
+  animation-delay: 0.32s;
 }
 
 /* Numbers that change in place — timers, scores, bills — must not reflow. */
 .tnum {
   font-variant-numeric: tabular-nums;
   font-feature-settings: 'tnum' 1;
+}
+
+/* Physical press. Every interactive control gets this, nothing else does. */
+.press {
+  transition:
+    transform 140ms var(--ease-out-soft),
+    background-color 180ms var(--ease-out-soft),
+    border-color 180ms var(--ease-out-soft),
+    color 180ms var(--ease-out-soft),
+    box-shadow 180ms var(--ease-out-soft);
+}
+.press:active:not(:disabled) {
+  transform: translateY(1px) scale(0.995);
 }

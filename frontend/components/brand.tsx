@@ -14,8 +14,8 @@ export function LogoMark({ className = 'size-7' }: { className?: string }) {
 
   return (
     <svg viewBox="0 0 40 40" className={className} role="img" aria-label="Home">
-      <circle cx="20" cy="20" r="7.5" fill="var(--color-solar)" />
-      <circle cx="20" cy="20" r="11.5" fill="none" stroke="var(--color-solar)" strokeWidth="1" opacity="0.35" />
+      <circle cx="20" cy="20" r="7.5" fill="var(--color-accent)" />
+      <circle cx="20" cy="20" r="11.5" fill="none" stroke="var(--color-accent)" strokeWidth="1" opacity="0.35" />
       {rays.map((length, i) => {
         const angle = (360 / rays.length) * i;
         return (
@@ -40,7 +40,7 @@ export function Wordmark({ className = '' }: { className?: string }) {
     <span className={`inline-flex items-center gap-2.5 ${className}`}>
       <LogoMark />
       <span className="font-display text-[17px] font-semibold tracking-tight">
-        Solar<span className="text-solar">setter</span>
+        Solar<span className="text-accent">setter</span>
       </span>
     </span>
   );
@@ -63,8 +63,8 @@ export function WordmarkLink({
   return (
     <Link
       href={href}
-      aria-label="Solarsetter — home"
-      className={`inline-flex rounded-lg transition-opacity hover:opacity-70 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-solar ${className}`}
+      aria-label="Solarsetter, home"
+      className={`inline-flex rounded-lg transition-opacity hover:opacity-70 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent ${className}`}
     >
       <Wordmark />
     </Link>

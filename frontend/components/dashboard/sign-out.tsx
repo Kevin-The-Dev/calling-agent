@@ -2,7 +2,9 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { LogOut } from 'lucide-react';
+import {
+  SignOutIcon,
+} from '@phosphor-icons/react/dist/ssr';
 import { createClient } from '@/lib/supabase/client';
 
 /**
@@ -32,7 +34,7 @@ export function SignOutButton() {
       }}
       className="inline-flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium text-ink-2 transition-colors hover:bg-sunk hover:text-ink disabled:opacity-50"
     >
-      <LogOut className="size-4" />
+      <SignOutIcon className="size-4" />
       {busy ? 'Signing out…' : 'Sign out'}
     </button>
   );

@@ -1,5 +1,7 @@
 import Link from 'next/link';
-import { ArrowLeft } from 'lucide-react';
+import {
+  ArrowLeftIcon,
+} from '@phosphor-icons/react/dist/ssr';
 import { CallConsole } from '@/components/call-console';
 import { WordmarkLink } from '@/components/brand';
 
@@ -22,7 +24,7 @@ export default function CallPage() {
         <div
           className="absolute left-1/2 top-[-25%] size-[55rem] -translate-x-1/2 rounded-full opacity-70 animate-drift"
           style={{
-            background: 'radial-gradient(circle, var(--color-solar-wash) 0%, transparent 65%)',
+            background: 'radial-gradient(circle, var(--color-accent-wash) 0%, transparent 65%)',
           }}
         />
       </div>
@@ -32,9 +34,9 @@ export default function CallPage() {
           <WordmarkLink />
           <Link
             href="/"
-            className="inline-flex items-center gap-1.5 text-[13px] text-ink-3 transition-colors hover:text-solar-deep"
+            className="inline-flex items-center gap-1.5 text-[13px] text-ink-3 transition-colors hover:text-accent-deep"
           >
-            <ArrowLeft className="size-3.5" />
+            <ArrowLeftIcon className="size-3.5" />
             Back
           </Link>
         </header>

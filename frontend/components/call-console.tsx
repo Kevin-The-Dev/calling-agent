@@ -14,15 +14,14 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import {
-  AlertTriangle,
-  CalendarCheck,
-  Loader2,
-  Mic,
-  PhoneCall,
-  PhoneOff,
-  ShieldCheck,
-  Sparkles,
-} from 'lucide-react';
+  CalendarCheckIcon,
+  MicrophoneIcon,
+  PhoneCallIcon,
+  PhoneXIcon,
+  ShieldCheckIcon,
+  SparkleIcon,
+  WarningIcon,
+} from '@phosphor-icons/react/dist/ssr';
 import { useCall, type CallPhase } from '@/hooks/use-call';
 import { getPublicEnv } from '@/lib/env';
 import { VoiceOrb } from '@/components/voice-orb';
@@ -46,7 +45,7 @@ const PHASE_TONE: Record<CallPhase, { fg: string; bg: string; line: string }> = 
   },
   listening: { fg: 'var(--color-live)', bg: 'var(--color-live-wash)', line: 'var(--color-live)' },
   thinking: { fg: 'var(--color-think)', bg: 'var(--color-think-wash)', line: 'var(--color-think)' },
-  speaking: { fg: 'var(--color-solar-deep)', bg: 'var(--color-solar-wash)', line: 'var(--color-solar)' },
+  speaking: { fg: 'var(--color-accent-deep)', bg: 'var(--color-accent-wash)', line: 'var(--color-accent)' },
   ended: { fg: 'var(--color-ink-3)', bg: 'var(--color-sunk)', line: 'var(--color-line)' },
 };
 
@@ -92,7 +91,11 @@ export function CallConsole() {
   const booked = call.outcome === 'booked';
 
   return (
-    <div className="relative rounded-console border border-line bg-surface shadow-console">
+    <section
+      id="console"
+      aria-label="Voice call"
+      className="relative scroll-mt-24 overflow-hidden rounded-console border border-line bg-surface shadow-console"
+    >
       {/* ── Console header ─────────────────────────────────────────────── */}
       <div className="flex items-center justify-between gap-4 border-b border-line px-5 py-3.5 sm:px-6">
         <span
@@ -119,7 +122,7 @@ export function CallConsole() {
             <span className="tnum">{formatElapsed(call.elapsed)}</span>
           ) : (
             <span className="inline-flex items-center gap-1.5">
-              <ShieldCheck className="size-3.5" />
+              <ShieldCheckIcon className="size-3.5" />
               Encrypted
             </span>
           )}
@@ -129,7 +132,7 @@ export function CallConsole() {
       {/* ── Orb ────────────────────────────────────────────────────────── */}
       <div className="relative overflow-hidden px-5 pb-2 pt-7 sm:px-6">
         <div
-          className="pointer-events-none absolute inset-x-0 top-0 h-40 opacity-[0.5] texture-grid"
+          className="pointer-events-none absolute inset-x-0 top-0 h-40 opacity-[0.5] texture-rule"
           style={{
             maskImage: 'radial-gradient(120% 90% at 50% 0%, #000, transparent 70%)',
             WebkitMaskImage: 'radial-gradient(120% 90% at 50% 0%, #000, transparent 70%)',
@@ -142,15 +145,17 @@ export function CallConsole() {
           {/* Sits in the orb's core — the one place the eye is already looking. */}
           <div className="pointer-events-none absolute grid place-items-center text-center">
             {call.phase === 'thinking' ? (
-              <Loader2 className="size-6 animate-spin text-think" />
+              <span className="relative block h-1 w-10 overflow-hidden rounded-full bg-think/20">
+                <span className="absolute inset-y-0 w-1/3 rounded-full bg-think animate-sweep" />
+              </span>
             ) : call.phase === 'speaking' ? (
-              <Sparkles className="size-6 text-solar" />
+              <SparkleIcon className="size-6 text-accent" />
             ) : call.phase === 'listening' ? (
-              <Mic className="size-6 text-live" />
+              <MicrophoneIcon className="size-6 text-live" />
             ) : booked ? (
-              <CalendarCheck className="size-6 text-pine" />
+              <CalendarCheckIcon className="size-6 text-booked" />
             ) : (
-              <PhoneCall className="size-6 text-ink-4" />
+              <PhoneCallIcon className="size-6 text-ink-4" />
             )}
           </div>
         </div>
@@ -168,9 +173,9 @@ export function CallConsole() {
                   className="block h-1 rounded-full transition-colors duration-500"
                   style={{
                     background: current
-                      ? 'var(--color-solar)'
+                      ? 'var(--color-accent)'
                       : reached
-                        ? 'var(--color-solar-line)'
+                        ? 'var(--color-accent-line)'
                         : 'var(--color-line)',
                   }}
                 />
@@ -181,7 +186,7 @@ export function CallConsole() {
                 {/* Labelling all eight would crowd the console; the current one
                     is the only one anyone needs. */}
                 {current && (
-                  <span className="absolute left-0 top-2.5 whitespace-nowrap text-[11px] font-medium uppercase tracking-[0.08em] text-solar-deep animate-fade">
+                  <span className="absolute left-0 top-2.5 whitespace-nowrap text-[11px] font-medium uppercase tracking-[0.08em] text-accent-deep animate-fade">
                     {stage.label}
                   </span>
                 )}
@@ -228,7 +233,7 @@ export function CallConsole() {
             role="alert"
             className="flex items-start gap-2.5 rounded-xl border border-alert/25 bg-alert-wash px-3.5 py-3 text-[13px] leading-relaxed text-alert"
           >
-            <AlertTriangle className="mt-px size-4 shrink-0" />
+            <WarningIcon className="mt-px size-4 shrink-0" />
             <span>{call.supportReason ?? call.error}</span>
           </div>
         </div>
@@ -242,7 +247,7 @@ export function CallConsole() {
               type="checkbox"
               checked={consented}
               onChange={(e) => setConsented(e.target.checked)}
-              className="mt-0.5 size-4 shrink-0 accent-[var(--color-solar)]"
+              className="mt-0.5 size-4 shrink-0 accent-[var(--color-accent)]"
             />
             <span>
               I understand I&apos;ll be speaking with an <strong className="font-semibold text-ink">AI assistant</strong>,
@@ -257,9 +262,9 @@ export function CallConsole() {
             type="button"
             onClick={() => void call.start()}
             disabled={!canStart}
-            className="group flex w-full items-center justify-center gap-2.5 rounded-full bg-ink px-8 py-4 text-[15px] font-semibold text-paper shadow-lift transition-all duration-200 hover:bg-solar-deep disabled:cursor-not-allowed disabled:bg-ink-4 disabled:shadow-none"
+            className="press group flex w-full items-center justify-center gap-2.5 rounded-full bg-ink px-8 py-4 text-[15px] font-semibold text-paper shadow-lift hover:bg-accent-deep disabled:cursor-not-allowed disabled:border disabled:border-line-strong disabled:bg-sunk disabled:text-ink-3 disabled:shadow-none"
           >
-            <PhoneCall className="size-4.5 transition-transform duration-300 group-enabled:group-hover:-rotate-12" />
+            <PhoneCallIcon className="size-4.5 transition-transform duration-300 group-enabled:group-hover:-rotate-12" />
             Start the call
           </button>
         )}
@@ -268,9 +273,9 @@ export function CallConsole() {
           <button
             type="button"
             onClick={() => void call.end()}
-            className="flex w-full items-center justify-center gap-2.5 rounded-full border border-alert/30 bg-alert-wash px-8 py-4 text-[15px] font-semibold text-alert transition-colors hover:bg-alert hover:text-paper"
+            className="press flex w-full items-center justify-center gap-2.5 rounded-full border border-alert/30 bg-alert-wash px-8 py-4 text-[15px] font-semibold text-alert hover:bg-alert hover:text-paper"
           >
-            <PhoneOff className="size-4.5" />
+            <PhoneXIcon className="size-4.5" />
             End call
           </button>
         )}
@@ -280,17 +285,17 @@ export function CallConsole() {
             <div
               className="mx-auto flex items-center justify-center gap-2 rounded-full px-4 py-2 text-[13px] font-medium"
               style={{
-                background: booked ? 'var(--color-pine-wash)' : 'var(--color-sunk)',
-                color: booked ? 'var(--color-pine)' : 'var(--color-ink-2)',
+                background: booked ? 'var(--color-booked-wash)' : 'var(--color-sunk)',
+                color: booked ? 'var(--color-booked)' : 'var(--color-ink-2)',
               }}
             >
-              {booked ? <CalendarCheck className="size-4" /> : <PhoneOff className="size-4" />}
-              {booked ? "You're booked in — we'll text the confirmation." : 'Thanks for your time.'}
+              {booked ? <CalendarCheckIcon className="size-4" /> : <PhoneXIcon className="size-4" />}
+              {booked ? "You're booked in. We'll text the confirmation." : 'Thanks for your time.'}
             </div>
             <button
               type="button"
               onClick={() => window.location.reload()}
-              className="text-[13px] font-medium text-ink-3 underline underline-offset-4 transition-colors hover:text-solar-deep"
+              className="text-[13px] font-medium text-ink-3 underline underline-offset-4 transition-colors hover:text-accent-deep"
             >
               Start another call
             </button>
@@ -298,10 +303,10 @@ export function CallConsole() {
         )}
 
         <p className="text-center text-[12px] leading-relaxed text-ink-3">
-          Microphone required · Chrome, Edge, or Safari
+          Needs a microphone. Chrome, Edge, or Safari.
         </p>
       </div>
-    </div>
+    </section>
   );
 }
 

@@ -2,12 +2,16 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { BarChart3, PhoneCall, Users } from 'lucide-react';
+import {
+  ChartBarIcon,
+  PhoneCallIcon,
+  UsersIcon,
+} from '@phosphor-icons/react/dist/ssr';
 
 const LINKS = [
-  { href: '/dashboard', label: 'Overview', icon: BarChart3 },
-  { href: '/dashboard/leads', label: 'Leads', icon: Users },
-  { href: '/dashboard/calls', label: 'Calls', icon: PhoneCall },
+  { href: '/dashboard', label: 'Overview', icon: ChartBarIcon },
+  { href: '/dashboard/leads', label: 'Leads', icon: UsersIcon },
+  { href: '/dashboard/calls', label: 'Calls', icon: PhoneCallIcon },
 ];
 
 /**
@@ -32,7 +36,7 @@ export function DashboardNav() {
             aria-current={active ? 'page' : undefined}
             className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13.5px] font-medium transition-colors ${
               active
-                ? 'bg-solar-wash text-solar-deep'
+                ? 'bg-accent-wash text-accent-deep'
                 : 'text-ink-2 hover:bg-sunk hover:text-ink'
             }`}
           >

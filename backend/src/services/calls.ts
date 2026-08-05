@@ -8,9 +8,11 @@ import type { Env } from '../lib/env.js';
 import { databaseError } from '../lib/errors.js';
 import type { Database, Json } from '../types/database.js';
 import type { CallState, Lead, Stage, TranscriptTurn } from '../types/domain.js';
+import { beatsFromHistory, NO_BEATS } from '../agents/beats.js';
 import { getServiceClient } from './supabase.js';
 
 type LeadUpdate = Database['public']['Tables']['leads']['Update'];
+type AppointmentInsert = Database['public']['Tables']['appointments']['Insert'];
 
 export interface StartCallResult {
   callId: string;
@@ -68,7 +70,7 @@ export async function loadCallState(env: Env, callId: string): Promise<CallState
   // select string, and concatenation collapses it to an error type.
   const { data: call, error } = await db
     .from('calls')
-    .select('id, lead_id, stage, return_stage, turn_count, early_objection_count, late_objection_count, qualification_score, buying_intent, outcome, status, leads(*)')
+    .select('id, lead_id, stage, return_stage, turn_count, early_objection_count, late_objection_count, qualification_score, buying_intent, outcome, status, appointment_at, appointment_timezone, leads(*)')
     .eq('id', callId)
     .maybeSingle();
 
@@ -97,6 +99,21 @@ export async function loadCallState(env: Env, callId: string): Promise<CallState
     disqualifiedReason: null,
     doNotContact: Boolean((lead as Record<string, unknown> | null)?.['do_not_contact']),
     outcome: (call.outcome as CallState['outcome']) ?? null,
+    // `conflictChecked` is deliberately not persisted: it only gates writing the
+    // appointment row at close, and a call that survived a cache miss can be
+    // re-confirmed cheaply. Persisting it would mean a schema column that is
+    // read exactly once.
+    appointment: call.appointment_at
+      ? {
+          at: call.appointment_at as string,
+          timezone: (call.appointment_timezone as string | null) ?? env.DEFAULT_TIMEZONE,
+          conflictChecked: false,
+        }
+      : null,
+    // Not a column: which beats were delivered is written in the transcript, and
+    // reading it back is free once the history has been fetched anyway.
+    // `loadCallContext` fills this in — see `beatsFromHistory`.
+    beats: NO_BEATS,
   };
 }
 
@@ -133,7 +150,7 @@ export async function loadCallContext(
   ]);
 
   if (!state) return null;
-  return { state, history };
+  return { state: { ...state, beats: beatsFromHistory(history) }, history };
 }
 
 /**
@@ -161,6 +178,8 @@ export function initialCallState(callId: string, leadId: string, timezone: strin
     disqualifiedReason: null,
     doNotContact: false,
     outcome: null,
+    appointment: null,
+    beats: NO_BEATS,
   };
 }
 
@@ -222,7 +241,7 @@ export async function persistTurn(env: Env, input: PersistTurnInput): Promise<vo
   // next prospect turn starts. See implementation.md R13.
   const agentStartMs = input.audioEndMs ?? null;
 
-  const { error: turnError } = await db.from('transcript_turns').insert([
+  const transcriptWrite = db.from('transcript_turns').insert([
     {
       call_id: state.callId,
       turn_index: baseIndex,
@@ -244,10 +263,6 @@ export async function persistTurn(env: Env, input: PersistTurnInput): Promise<vo
       audio_start_ms: agentStartMs,
     },
   ]);
-
-  if (turnError) {
-    throw databaseError('Could not write the transcript', { message: turnError.message });
-  }
 
   // Built key by key rather than spread: an `undefined` in an update payload
   // blanks the column, so a field the agent hasn't learned yet would erase one
@@ -273,14 +288,9 @@ export async function persistTurn(env: Env, input: PersistTurnInput): Promise<vo
   // only ever set it to true, never write false over an existing true.
   if (state.doNotContact) leadUpdate['do_not_contact'] = true;
 
-  const { error: leadError } = await db
-    .from('leads').update(leadUpdate as LeadUpdate)
-    .eq('id', state.leadId);
-  if (leadError) {
-    throw databaseError('Could not update the lead', { message: leadError.message });
-  }
+  const leadWrite = db.from('leads').update(leadUpdate as LeadUpdate).eq('id', state.leadId);
 
-  const { error: callError } = await db
+  const callWrite = db
     .from('calls')
     .update({
       stage: state.stage,
@@ -290,23 +300,44 @@ export async function persistTurn(env: Env, input: PersistTurnInput): Promise<vo
       late_objection_count: state.lateObjectionCount,
       qualification_score: state.qualificationScore,
       buying_intent: state.buyingIntent,
+      appointment_at: state.appointment?.at ?? null,
+      appointment_timezone: state.appointment?.timezone ?? null,
     })
     .eq('id', state.callId);
 
-  if (callError) {
-    throw databaseError('Could not update the call', { message: callError.message });
-  }
+  const objectionWrite = input.objectionId && input.objectionQuote
+    ? db.from('objection_events').insert({
+        call_id: state.callId,
+        lead_id: state.leadId,
+        objection_id: input.objectionId,
+        objection_class: input.objectionId.startsWith('early.') ? 'early' : 'late',
+        quote: input.objectionQuote,
+        stage_at: previousStage,
+        resolved: true,
+      })
+    : null;
 
-  if (input.objectionId && input.objectionQuote) {
-    await db.from('objection_events').insert({
-      call_id: state.callId,
-      lead_id: state.leadId,
-      objection_id: input.objectionId,
-      objection_class: input.objectionId.startsWith('early.') ? 'early' : 'late',
-      quote: input.objectionQuote,
-      stage_at: previousStage,
-      resolved: true,
-    });
+  // Four independent writes against a database roughly 170ms away. Run in
+  // sequence they cost ~680ms of the turn; none of them reads what another one
+  // writes, so the only thing sequencing bought was latency.
+  const [turnResult, leadResult, callResult] = await Promise.all([
+    transcriptWrite,
+    leadWrite,
+    callWrite,
+    objectionWrite,
+  ]);
+
+  // Reported after the fact rather than short-circuiting: by the time the first
+  // failure is known the others have already been sent, and the transcript is
+  // the one whose loss the caller must act on (it invalidates the cache).
+  if (turnResult.error) {
+    throw databaseError('Could not write the transcript', { message: turnResult.error.message });
+  }
+  if (leadResult.error) {
+    throw databaseError('Could not update the lead', { message: leadResult.error.message });
+  }
+  if (callResult.error) {
+    throw databaseError('Could not update the call', { message: callResult.error.message });
   }
 }
 
@@ -329,28 +360,128 @@ export async function recordEvent(
   await getServiceClient(env).from('call_events').insert({ call_id: callId, type, payload });
 }
 
-/** Closes out a call: outcome, summary, and status. */
+/**
+ * Which of the five §8 recap points the agent actually delivered.
+ *
+ * Read off the closing turns rather than assumed from the stage. The database
+ * refuses to mark an appointment `booked` without all five, and the point of
+ * that constraint is that it cannot be satisfied by the agent merely having
+ * reached the closing stage — the reminders are what make a booking hold.
+ */
+export function recapFlagsFrom(history: TranscriptTurn[]): {
+  recap_details_given: boolean;
+  reminded_confirmation_call: boolean;
+  reminded_utility_bill: boolean;
+  reminded_decision_makers: boolean;
+  reminded_no_cost: boolean;
+} {
+  const closing = history
+    .filter((t) => t.speaker === 'agent' && (t.stage === 'closing' || t.stage === 'confirmation'))
+    .map((t) => t.content.toLowerCase())
+    .join(' ');
+
+  return {
+    recap_details_given: /\b(?:recap|go over|so we(?:'re| are) on the same page|just to confirm)\b/.test(closing),
+    reminded_confirmation_call: /\bcall (?:you )?(?:before|ahead)|before (?:he|she|they|heading)/.test(closing),
+    reminded_utility_bill: /\b(?:electric(?:ity)? )?bill (?:ready|handy|on hand)|have (?:your|a copy of your) .{0,20}bill\b/.test(closing),
+    reminded_decision_makers: /\bdecision makers?\b|\beveryone (?:who|that) .{0,30}decide|\ball .{0,20}present\b/.test(closing),
+    reminded_no_cost: /\bnothing out of pocket\b|\bno (?:cost|charge)\b|\bnot cost(?:ing)? you\b/.test(closing),
+  };
+}
+
+/**
+ * Writes the appointment the prospect agreed to.
+ *
+ * Only ever called at close, and only when there is a real slot. `status` is
+ * `booked` when the whole §8 close actually happened and `held` otherwise —
+ * a slot was agreed but the reminders that make it stick were not all given,
+ * so it needs a human to follow up rather than sitting in the calendar
+ * looking finished.
+ */
+async function writeAppointment(
+  env: Env,
+  state: CallState,
+  history: TranscriptTurn[],
+): Promise<'booked' | 'held' | null> {
+  const { appointment, lead } = state;
+  if (!appointment || !lead.address) return null;
+
+  const db = getServiceClient(env);
+  const recap = recapFlagsFrom(history);
+  const fullRecap = Object.values(recap).every(Boolean);
+  const status = fullRecap && appointment.conflictChecked ? 'booked' : 'held';
+
+  const row: AppointmentInsert = {
+    lead_id: state.leadId,
+    call_id: state.callId,
+    scheduled_at: appointment.at,
+    timezone: appointment.timezone,
+    appointment_type: 'in_home',
+    address: lead.address,
+    consultant_name: env.CONSULTANT_NAME ?? null,
+    language: lead.language ?? 'en',
+    status,
+    decision_makers: (lead.decision_makers ?? []) as unknown as Json,
+    decision_makers_present: (lead.decision_makers ?? []).some((d) => d.will_attend !== false),
+    confirmation_phone: lead.phone ?? null,
+    conflict_checked: appointment.conflictChecked,
+    ...recap,
+  };
+
+  // One appointment per call. A re-ended call updates rather than duplicates.
+  const { data: existing } = await db
+    .from('appointments')
+    .select('id')
+    .eq('call_id', state.callId)
+    .maybeSingle();
+
+  const { error } = existing
+    ? await db.from('appointments').update(row).eq('id', existing.id as string)
+    : await db.from('appointments').insert(row);
+
+  if (error) {
+    throw databaseError('Could not record the appointment', { message: error.message });
+  }
+
+  return status;
+}
+
+/** Closes out a call: outcome, summary, status, and the appointment if there is one. */
 export async function endCall(
   env: Env,
   state: CallState,
   summary: string | null,
-): Promise<void> {
+  history: TranscriptTurn[] = [],
+): Promise<CallState['outcome']> {
   const db = getServiceClient(env);
+
+  // Written before the call row so the outcome reflects what was actually
+  // stored. "Booked" that is not backed by an appointment row is a lie the CRM
+  // then reports on.
+  const appointmentStatus = await writeAppointment(env, state, history);
+  const outcome = appointmentStatus === 'booked' ? 'booked' : (state.outcome ?? 'abandoned');
 
   await db
     .from('calls')
     .update({
       status: 'completed',
       ended_at: new Date().toISOString(),
-      outcome: state.outcome ?? 'abandoned',
+      outcome,
       summary,
       stage: state.stage,
       qualification_score: state.qualificationScore,
       buying_intent: state.buyingIntent,
+      appointment_at: state.appointment?.at ?? null,
+      appointment_timezone: state.appointment?.timezone ?? null,
     })
     .eq('id', state.callId);
 
-  if (summary) {
-    await db.from('leads').update({ summary }).eq('id', state.leadId);
+  const leadUpdate: Record<string, unknown> = {};
+  if (summary) leadUpdate['summary'] = summary;
+  if (outcome === 'booked') leadUpdate['status'] = 'booked';
+  if (Object.keys(leadUpdate).length > 0) {
+    await db.from('leads').update(leadUpdate as LeadUpdate).eq('id', state.leadId);
   }
+
+  return outcome;
 }

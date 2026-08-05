@@ -12,7 +12,13 @@
  * the failure message says to reload rather than reporting something opaque.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AlertCircle, Download, Pause, Play, RotateCcw } from 'lucide-react';
+import {
+  ArrowCounterClockwiseIcon,
+  DownloadSimpleIcon,
+  PauseIcon,
+  PlayIcon,
+  WarningCircleIcon,
+} from '@phosphor-icons/react/dist/ssr';
 import { formatDuration } from './primitives';
 import { usePlayback } from './playback-context';
 
@@ -141,10 +147,10 @@ export function RecordingPlayer({
         role="alert"
         className="flex items-start gap-2.5 rounded-xl border border-alert/25 bg-alert-wash px-4 py-3 text-[13px] leading-relaxed text-alert"
       >
-        <AlertCircle className="mt-px size-4 shrink-0" />
+        <WarningCircleIcon className="mt-px size-4 shrink-0" />
         <span>
-          This recording could not be played. Either the playback link has expired — reload the
-          page to mint a new one — or the audio itself is unreadable, which happens when a call is
+          This recording could not be played. Either the playback link has expired, in which case
+          reloading the page mints a new one, or the audio itself is unreadable, which happens when a call is
           cut off before the recorder finishes writing the file.
         </span>
       </div>
@@ -160,9 +166,9 @@ export function RecordingPlayer({
           type="button"
           onClick={toggle}
           aria-label={playing ? 'Pause recording' : 'Play recording'}
-          className="grid size-10 shrink-0 place-items-center rounded-full bg-ink text-paper transition-colors hover:bg-solar-deep"
+          className="grid size-10 shrink-0 place-items-center rounded-full bg-ink text-paper transition-colors hover:bg-accent-deep"
         >
-          {playing ? <Pause className="size-4" /> : <Play className="ml-0.5 size-4" />}
+          {playing ? <PauseIcon className="size-4" /> : <PlayIcon className="ml-0.5 size-4" />}
         </button>
 
         <div className="min-w-0 flex-1">
@@ -172,7 +178,7 @@ export function RecordingPlayer({
           <div className="relative h-1.5">
             <div className="absolute inset-0 rounded-full bg-line" />
             <div
-              className="absolute inset-y-0 left-0 rounded-full bg-solar transition-[width] duration-100"
+              className="absolute inset-y-0 left-0 rounded-full bg-accent transition-[width] duration-100"
               style={{ width: `${progress}%` }}
             />
             <input
@@ -199,7 +205,7 @@ export function RecordingPlayer({
           aria-label="Restart recording"
           className="grid size-8 shrink-0 place-items-center rounded-lg border border-line bg-surface text-ink-2 transition-colors hover:border-line-strong hover:text-ink"
         >
-          <RotateCcw className="size-3.5" />
+          <ArrowCounterClockwiseIcon className="size-3.5" />
         </button>
 
         <a
@@ -208,13 +214,13 @@ export function RecordingPlayer({
           aria-label="Download recording"
           className="grid size-8 shrink-0 place-items-center rounded-lg border border-line bg-surface text-ink-2 transition-colors hover:border-line-strong hover:text-ink"
         >
-          <Download className="size-3.5" />
+          <DownloadSimpleIcon className="size-3.5" />
         </a>
       </div>
 
       <p className="mt-3 border-t border-line pt-3 text-[11.5px] leading-relaxed text-ink-3">
         {channels === 'prospect'
-          ? 'Prospect audio only — the assistant speaks through browser synthesis, which cannot be captured. Play this and the transcript below follows along, so you can read the assistant’s half where the audio falls silent.'
+          ? 'Prospect audio only. The assistant speaks through browser synthesis, which cannot be captured. Play this and the transcript below follows along, so you can read the assistant’s half where the audio falls silent.'
           : `${channels} audio`}
         {sizeBytes ? ` · ${(sizeBytes / 1_000_000).toFixed(1)} MB` : ''}
       </p>

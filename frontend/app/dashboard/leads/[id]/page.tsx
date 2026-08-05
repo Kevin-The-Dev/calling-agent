@@ -1,17 +1,17 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import {
-  ArrowLeft,
-  AudioLines,
-  Ban,
-  CalendarCheck,
-  CircleDollarSign,
-  FileText,
-  Home,
-  MessageSquareQuote,
-  PhoneCall,
-  User,
-} from 'lucide-react';
+  ArrowLeftIcon,
+  CalendarCheckIcon,
+  CurrencyCircleDollarIcon,
+  FileTextIcon,
+  HouseIcon,
+  PhoneCallIcon,
+  ProhibitIcon,
+  QuotesIcon,
+  UserIcon,
+  WaveformIcon,
+} from '@phosphor-icons/react/dist/ssr';
 import { createClient } from '@/lib/supabase/server';
 import { RecordingPlayer } from '@/components/dashboard/recording-player';
 import { PlaybackProvider } from '@/components/dashboard/playback-context';
@@ -114,9 +114,9 @@ export default async function LeadPage({ params }: { params: Promise<{ id: strin
       <div>
         <Link
           href="/dashboard/leads"
-          className="inline-flex items-center gap-1.5 text-[13px] text-ink-3 transition-colors hover:text-solar-deep"
+          className="inline-flex items-center gap-1.5 text-[13px] text-ink-3 transition-colors hover:text-accent-deep"
         >
-          <ArrowLeft className="size-3.5" />
+          <ArrowLeftIcon className="size-3.5" />
           All leads
         </Link>
 
@@ -131,7 +131,7 @@ export default async function LeadPage({ params }: { params: Promise<{ id: strin
 
           {lead.do_not_contact && (
             <Badge tone="alert">
-              <Ban className="size-3" />
+              <ProhibitIcon className="size-3" />
               Do not contact
             </Badge>
           )}
@@ -143,11 +143,11 @@ export default async function LeadPage({ params }: { params: Promise<{ id: strin
       </div>
 
       {lead.summary && (
-        <Card className="border-solar-line bg-solar-wash/40">
+        <Card className="border-accent-line bg-accent-wash/40">
           <div className="flex gap-3 p-5">
-            <FileText className="mt-0.5 size-4 shrink-0 text-solar-deep" />
+            <FileTextIcon className="mt-0.5 size-4 shrink-0 text-accent-deep" />
             <div>
-              <h2 className="text-[12px] font-semibold uppercase tracking-[0.1em] text-solar-deep">
+              <h2 className="text-[12px] font-semibold uppercase tracking-[0.1em] text-accent-deep">
                 Call summary
               </h2>
               <p className="mt-2 text-[14px] leading-relaxed text-ink">{lead.summary as string}</p>
@@ -160,7 +160,7 @@ export default async function LeadPage({ params }: { params: Promise<{ id: strin
         {/* ── Left: the record ───────────────────────────────────────────── */}
         <div className="space-y-6">
           <Card>
-            <CardHead title="Contact" icon={<User className="size-4 text-ink-3" />} />
+            <CardHead title="Contact" icon={<UserIcon className="size-4 text-ink-3" />} />
             <dl className="px-5 py-1">
               <Field label="Phone" value={lead.phone} />
               <Field label="Email" value={lead.email} />
@@ -170,7 +170,7 @@ export default async function LeadPage({ params }: { params: Promise<{ id: strin
           </Card>
 
           <Card>
-            <CardHead title="The home" icon={<Home className="size-4 text-ink-3" />} />
+            <CardHead title="The home" icon={<HouseIcon className="size-4 text-ink-3" />} />
             <dl className="px-5 py-1">
               <Field label="Homeowner" value={boolLabel(lead.homeowner_confirmed)} />
               <Field label="Home type" value={humanizeOrNull(lead.home_type)} />
@@ -182,7 +182,7 @@ export default async function LeadPage({ params }: { params: Promise<{ id: strin
           </Card>
 
           <Card>
-            <CardHead title="Bill & qualification" icon={<CircleDollarSign className="size-4 text-ink-3" />} />
+            <CardHead title="Bill & qualification" icon={<CurrencyCircleDollarIcon className="size-4 text-ink-3" />} />
             <dl className="px-5 py-1">
               <Field
                 label="Monthly bill"
@@ -213,8 +213,8 @@ export default async function LeadPage({ params }: { params: Promise<{ id: strin
           </Card>
 
           {appointments && appointments.length > 0 && (
-            <Card className="border-pine/20">
-              <CardHead title="Appointment" icon={<CalendarCheck className="size-4 text-pine" />} />
+            <Card className="border-booked/20">
+              <CardHead title="Appointment" icon={<CalendarCheckIcon className="size-4 text-booked" />} />
               {appointments.map((a) => (
                 <dl key={a.id as string} className="px-5 py-1">
                   <Field
@@ -244,7 +244,7 @@ export default async function LeadPage({ params }: { params: Promise<{ id: strin
         <PlaybackProvider>
         <div className="space-y-6">
           <Card>
-            <CardHead title="Recording" icon={<AudioLines className="size-4 text-ink-3" />} />
+            <CardHead title="Recording" icon={<WaveformIcon className="size-4 text-ink-3" />} />
             <div className="p-5">
               {playbackUrl && recording ? (
                 <RecordingPlayer
@@ -256,7 +256,7 @@ export default async function LeadPage({ params }: { params: Promise<{ id: strin
                 />
               ) : (
                 <EmptyState
-                  icon={<AudioLines className="size-6" />}
+                  icon={<WaveformIcon className="size-6" />}
                   title="No recording for this call"
                   copy="Audio is uploaded when the call ends. A call abandoned by closing the tab may not have one."
                 />
@@ -267,7 +267,7 @@ export default async function LeadPage({ params }: { params: Promise<{ id: strin
           <Card>
             <CardHead
               title={`Calls (${calls?.length ?? 0})`}
-              icon={<PhoneCall className="size-4 text-ink-3" />}
+              icon={<PhoneCallIcon className="size-4 text-ink-3" />}
             />
             {!calls || calls.length === 0 ? (
               <EmptyState title="No calls" copy="This lead has no conversation history." />
@@ -306,7 +306,7 @@ export default async function LeadPage({ params }: { params: Promise<{ id: strin
             <Card>
               <CardHead
                 title="Objections raised"
-                icon={<MessageSquareQuote className="size-4 text-ink-3" />}
+                icon={<QuotesIcon className="size-4 text-ink-3" />}
               />
               <ul className="divide-y divide-line">
                 {objectionEvents.map((o, i) => (
@@ -331,8 +331,8 @@ export default async function LeadPage({ params }: { params: Promise<{ id: strin
           {/* ── Transcript ───────────────────────────────────────────────── */}
           <Card>
             <CardHead
-              title="Transcript — most recent call"
-              icon={<FileText className="size-4 text-ink-3" />}
+              title="Transcript, most recent call"
+              icon={<FileTextIcon className="size-4 text-ink-3" />}
               action={
                 latestCall ? (
                   <span className="text-[12px] text-ink-3">
@@ -344,7 +344,7 @@ export default async function LeadPage({ params }: { params: Promise<{ id: strin
 
             {!turns || turns.length === 0 ? (
               <EmptyState
-                icon={<FileText className="size-6" />}
+                icon={<FileTextIcon className="size-6" />}
                 title="No transcript"
                 copy="Turns are written as the conversation happens. A call that never got a reply has none."
               />
@@ -380,7 +380,7 @@ function Field({
           empty ? 'text-ink-4' : emphasis ? 'font-semibold text-ink' : 'text-ink'
         }`}
       >
-        {empty ? '—' : String(value)}
+        {empty ? '-' : String(value)}
       </dd>
     </div>
   );

@@ -12,7 +12,7 @@ import type { ReactNode } from 'react';
  * One place that decides what a status *looks* like. Everything downstream
  * asks here rather than picking its own colour.
  */
-export type Tone = 'neutral' | 'solar' | 'live' | 'think' | 'alert' | 'pine';
+export type Tone = 'neutral' | 'accent' | 'live' | 'think' | 'alert' | 'booked';
 
 const TONE_STYLE: Record<Tone, { color: string; background: string; borderColor: string }> = {
   neutral: {
@@ -20,10 +20,10 @@ const TONE_STYLE: Record<Tone, { color: string; background: string; borderColor:
     background: 'var(--color-sunk)',
     borderColor: 'var(--color-line)',
   },
-  solar: {
-    color: 'var(--color-solar-deep)',
-    background: 'var(--color-solar-wash)',
-    borderColor: 'var(--color-solar-line)',
+  accent: {
+    color: 'var(--color-accent-deep)',
+    background: 'var(--color-accent-wash)',
+    borderColor: 'var(--color-accent-line)',
   },
   live: {
     color: 'var(--color-live)',
@@ -40,17 +40,17 @@ const TONE_STYLE: Record<Tone, { color: string; background: string; borderColor:
     background: 'var(--color-alert-wash)',
     borderColor: 'color-mix(in srgb, var(--color-alert) 25%, transparent)',
   },
-  pine: {
-    color: 'var(--color-pine)',
-    background: 'var(--color-pine-wash)',
-    borderColor: 'color-mix(in srgb, var(--color-pine) 22%, transparent)',
+  booked: {
+    color: 'var(--color-booked)',
+    background: 'var(--color-booked-wash)',
+    borderColor: 'color-mix(in srgb, var(--color-booked) 22%, transparent)',
   },
 };
 
 /** A booked call is the only outcome worth celebrating, so only it gets pine. */
 export const OUTCOME_TONE: Record<string, Tone> = {
-  booked: 'pine',
-  callback: 'solar',
+  booked: 'booked',
+  callback: 'accent',
   not_interested: 'neutral',
   disqualified: 'neutral',
   do_not_contact: 'alert',
@@ -59,7 +59,7 @@ export const OUTCOME_TONE: Record<string, Tone> = {
 };
 
 export const BAND_TONE: Record<string, Tone> = {
-  hot: 'solar',
+  hot: 'accent',
   warm: 'think',
   cold: 'neutral',
   unqualified: 'neutral',
@@ -68,15 +68,15 @@ export const BAND_TONE: Record<string, Tone> = {
 export const STATUS_TONE: Record<string, Tone> = {
   new: 'neutral',
   qualifying: 'think',
-  qualified: 'solar',
-  booked: 'pine',
+  qualified: 'accent',
+  booked: 'booked',
   disqualified: 'neutral',
   do_not_contact: 'alert',
 };
 
 /** Turns `do_not_contact` into "Do not contact" for display. */
 export function humanize(value: string | null | undefined): string {
-  if (!value) return '—';
+  if (!value) return '-';
   return value.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
 }
 
@@ -195,7 +195,7 @@ export function ScoreBar({ score, band }: { score: number; band?: string | null 
   const tone = band
     ? (BAND_TONE[band] ?? 'neutral')
     : score >= 70
-      ? 'solar'
+      ? 'accent'
       : score >= 50
         ? 'think'
         : 'neutral';
@@ -217,14 +217,14 @@ export function ScoreBar({ score, band }: { score: number; band?: string | null 
 
 /** Seconds → "4:07". Durations are read as minutes, never as 247. */
 export function formatDuration(seconds: number | null | undefined): string {
-  if (seconds === null || seconds === undefined) return '—';
+  if (seconds === null || seconds === undefined) return '-';
   const m = Math.floor(seconds / 60);
   const s = Math.round(seconds % 60);
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
 export function formatDateTime(value: string | null | undefined): string {
-  if (!value) return '—';
+  if (!value) return '-';
   return new Date(value).toLocaleString(undefined, {
     month: 'short',
     day: 'numeric',

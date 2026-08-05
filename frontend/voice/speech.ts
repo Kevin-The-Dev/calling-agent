@@ -493,11 +493,19 @@ export function createSpeaker(rate = 1.0, tailMs = SPEECH_TAIL_MS): Speaker {
       // cost, and browsers only permit synthesis after a user gesture anyway.
       // Spending it on a silent utterance means the agent's opening line plays
       // the moment it arrives instead of a few hundred ms later.
-      ensureVoice();
-      const primer = new SpeechSynthesisUtterance(' ');
-      if (voice) primer.voice = voice;
-      primer.volume = 0;
-      window.speechSynthesis.speak(primer);
+      //
+      // Wrapped because this runs inside the same try block that starts the
+      // call. Warming up is an optimization; a synthesis engine that rejects
+      // the primer must cost a few hundred milliseconds, not the whole call.
+      try {
+        ensureVoice();
+        const primer = new SpeechSynthesisUtterance(' ');
+        if (voice) primer.voice = voice;
+        primer.volume = 0;
+        window.speechSynthesis.speak(primer);
+      } catch {
+        // The real utterances will pay the start-up cost instead.
+      }
     },
     get speaking() {
       return playing;
@@ -537,7 +545,14 @@ export function createSpeaker(rate = 1.0, tailMs = SPEECH_TAIL_MS): Speaker {
     }
 
     const utterance = new SpeechSynthesisUtterance(next);
-    if (voice) utterance.voice = voice;
+    // Assigning a voice the engine will not accept throws, and throwing here
+    // would abandon the queue mid-reply. The default voice is worse than the
+    // chosen one and far better than silence.
+    try {
+      if (voice) utterance.voice = voice;
+    } catch {
+      voice = null;
+    }
     utterance.rate = rate;
     utterance.pitch = 1;
 

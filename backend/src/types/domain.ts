@@ -149,6 +149,21 @@ export interface ObjectionRecord {
 
 // ─── Call state ──────────────────────────────────────────────────────────────
 
+/**
+ * The slot the prospect has agreed to.
+ *
+ * Held on the call from the moment it is agreed so the closing recap reads back
+ * the same time that was booked. Before this existed the recap re-invented a
+ * time several turns later, and the two did not match.
+ */
+export interface AgreedAppointment {
+  /** ISO 8601 instant. */
+  at: string;
+  timezone: string;
+  /** Set once the "anything that would keep you from being available" check passed. */
+  conflictChecked: boolean;
+}
+
 export interface CallState {
   callId: string;
   leadId: string;
@@ -167,6 +182,18 @@ export interface CallState {
   disqualifiedReason: DqReason | null;
   doNotContact: boolean;
   outcome: Outcome | null;
+  appointment: AgreedAppointment | null;
+  /**
+   * The required *statements* the agent has actually made — SGIP and the bill
+   * swap. See agents/beats.ts for why a spoken beat needs tracking of its own.
+   */
+  beats: DeliveredBeats;
+}
+
+/** Which of the script's content beats have been delivered. */
+export interface DeliveredBeats {
+  sgip: boolean;
+  pitch: boolean;
 }
 
 export interface TranscriptTurn {
@@ -199,6 +226,19 @@ export const extractionSchema = z.object({
   requests_do_not_contact: z.boolean().nullish(),
   wants_callback: z.boolean().nullish(),
   prospect_ended_call: z.boolean().nullish(),
+
+  /**
+   * The slot, only once the prospect has actually agreed to it.
+   *
+   * A local date and a local time rather than an instant: a model asked for a
+   * full ISO instant produces a confident, wrong offset, because it does not
+   * know whether the prospect's zone is on daylight time that week. Kept as two
+   * flat fields because a nested optional object goes missing too often.
+   */
+  appointment_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish(),
+  appointment_time: z.string().regex(/^\d{1,2}:\d{2}$/).nullish(),
+  /** True once they have confirmed nothing would keep them from that time. */
+  appointment_conflict_checked: z.boolean().nullish(),
 });
 
 export type Extraction = z.infer<typeof extractionSchema>;

@@ -102,6 +102,106 @@ describe('internal-machinery leaks', () => {
   });
 });
 
+describe('assistant phrasing', () => {
+  it('strips a help-desk offer but keeps the real content', () => {
+    const result = applyGuardrails(
+      "Certainly, I'd be happy to help with that. What's your average monthly bill?",
+    );
+
+    expect(result.blocked).toBe(false);
+    expect(result.text).toBe("What's your average monthly bill?");
+    expect(result.violations.map((v) => v.rule)).toContain('assistant_phrasing');
+  });
+
+  it('strips the sign-off a help desk uses and a setter never would', () => {
+    const result = applyGuardrails('That works. Is there anything else I can help you with?');
+    expect(result.text).toBe('That works.');
+  });
+
+  it('leaves an ordinary agreement alone', () => {
+    const line = 'Absolutely, a lot of people say the same thing.';
+    expect(applyGuardrails(line).text).toBe(line);
+  });
+
+  it('blocks a reply that was nothing but stock phrasing', () => {
+    const result = applyGuardrails('How can I assist you today?');
+    expect(result.blocked).toBe(true);
+    expect(result.violations.map((v) => v.rule)).toContain('empty_reply');
+  });
+});
+
+describe('invented partnerships', () => {
+  it.each([
+    'PG&E is one of our partner providers.',
+    "That's one of the providers we work with.",
+    "Oh, PG&E. That's one of the most common providers we work with.",
+    'They are one of the utilities we partner with.',
+    'We work directly with your utility on this.',
+  ])('blocks %j', (reply) => {
+    // The knowledge base describes no arrangement with any utility, so every
+    // one of these is a product fact the model made up. All three of the first
+    // three were said out loud during end-to-end testing.
+    const result = applyGuardrails(reply);
+    expect(result.blocked).toBe(true);
+    expect(result.violations.map((v) => v.rule)).toContain('invented_partnership');
+  });
+
+  it.each([
+    "We're working with a few of your neighbours about the rate increases.",
+    "The program we're working with is government sponsored.",
+    'Who is your current electricity provider?',
+  ])('leaves %j alone', (reply) => {
+    // The rule targets a claimed relationship with a *utility*. Working a
+    // neighbourhood and naming the program are both in the script.
+    expect(applyGuardrails(reply).blocked).toBe(false);
+  });
+});
+
+describe('phone vocabulary', () => {
+  it.each([
+    ['We can chat it through when the engineer comes out.', 'talk'],
+    ['I just wanted to chat about your bill.', 'talk'],
+    ['We were chatting with your neighbours yesterday.', 'talking'],
+    ['I chatted with a few homeowners on your street.', 'spoke'],
+  ])('rewrites chat-window vocabulary in %j', (reply, expected) => {
+    const result = applyGuardrails(reply);
+    expect(result.text).not.toMatch(/\bchat/i);
+    expect(result.text).toMatch(new RegExp(expected, 'i'));
+  });
+
+  it('turns "a quick chat" into something a person would actually say', () => {
+    expect(applyGuardrails('I just need a quick chat.').text).toBe('I just need a quick word.');
+  });
+
+  it.each([
+    'Is this a good time? We are working on your street this week.',
+    'Sorry to bother you. We are working on your street this week.',
+    'Do you have a minute? We are working on your street this week.',
+    'Could I steal a moment of your time? We are working on your street this week.',
+    'Is this a good time to chat? We are working on your street this week.',
+  ])('drops the permission ask in %j', (reply) => {
+    const result = applyGuardrails(reply);
+
+    expect(result.text).not.toMatch(/good time|sorry to bother|have a minute|steal a moment/i);
+    // The sentence that carried the actual content survives.
+    expect(result.text).toMatch(/working on your street/i);
+    expect(result.violations.map((v) => v.rule)).toContain('assistant_phrasing');
+  });
+
+  it('leaves a real apology for something that happened alone', () => {
+    // The rule targets apologising for the call itself, not ordinary manners.
+    const line = "Sorry, I didn't catch that.";
+    expect(applyGuardrails(line).text).toBe(line);
+  });
+
+  it('leaves the AIR response to "I am busy" intact', () => {
+    // objection-handling.md: agree, then resume. It offers to be brief; it does
+    // not ask to be allowed to continue.
+    const line = "Of course, I get that. I'll keep this super short.";
+    expect(applyGuardrails(line).text).toBe(line);
+  });
+});
+
 describe('safeFallback', () => {
   it('varies with the turn count so a repeat hit is not a robotic loop', () => {
     expect(safeFallback(0)).not.toBe(safeFallback(1));

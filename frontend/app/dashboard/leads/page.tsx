@@ -1,5 +1,8 @@
 import Link from 'next/link';
-import { Search, Users } from 'lucide-react';
+import {
+  MagnifyingGlassIcon,
+  UsersIcon,
+} from '@phosphor-icons/react/dist/ssr';
 import { createClient } from '@/lib/supabase/server';
 import {
   Badge,
@@ -76,19 +79,19 @@ export default async function LeadsPage({
       {/* Plain GET form: no JavaScript needed, and the result is a shareable URL. */}
       <form className="flex flex-wrap items-center gap-3" action="/dashboard/leads">
         <div className="relative min-w-56 flex-1">
-          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-ink-4" />
+          <MagnifyingGlassIcon className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-ink-4" />
           <input
             type="search"
             name="q"
             defaultValue={q}
             placeholder="Search name, address, phone, utility…"
-            className="w-full rounded-full border border-line bg-surface py-2.5 pl-9 pr-4 text-[13.5px] shadow-sm transition-colors placeholder:text-ink-4 focus:border-solar focus:outline-none"
+            className="w-full rounded-full border border-line bg-surface py-2.5 pl-9 pr-4 text-[13.5px] shadow-sm transition-colors placeholder:text-ink-4 focus:border-accent focus:outline-none"
           />
         </div>
         <input type="hidden" name="filter" value={filter} />
         <button
           type="submit"
-          className="rounded-full bg-ink px-5 py-2.5 text-[13px] font-semibold text-paper transition-colors hover:bg-solar-deep"
+          className="rounded-full bg-ink px-5 py-2.5 text-[13px] font-semibold text-paper transition-colors hover:bg-accent-deep"
         >
           Search
         </button>
@@ -108,7 +111,7 @@ export default async function LeadsPage({
               href={href}
               className={`rounded-full border px-3.5 py-1.5 text-[12.5px] font-medium transition-colors ${
                 active
-                  ? 'border-solar-line bg-solar-wash text-solar-deep'
+                  ? 'border-accent-line bg-accent-wash text-accent-deep'
                   : 'border-line bg-surface text-ink-2 hover:border-line-strong'
               }`}
             >
@@ -121,7 +124,7 @@ export default async function LeadsPage({
       <Card className="overflow-hidden">
         {rows.length === 0 ? (
           <EmptyState
-            icon={<Users className="size-6" />}
+            icon={<UsersIcon className="size-6" />}
             title={q ? 'No leads match that search' : 'No leads yet'}
             copy={
               q
@@ -147,7 +150,7 @@ export default async function LeadsPage({
                   <tr key={lead.id as string} className="group transition-colors hover:bg-sunk/70">
                     <td className="px-5 py-3">
                       <Link href={`/dashboard/leads/${lead.id as string}`} className="block">
-                        <span className="flex items-center gap-2 text-[13.5px] font-medium text-ink group-hover:text-solar-deep">
+                        <span className="flex items-center gap-2 text-[13.5px] font-medium text-ink group-hover:text-accent-deep">
                           {lead.name ?? 'Unnamed lead'}
                           {lead.do_not_contact && <Badge tone="alert">DNC</Badge>}
                         </span>
@@ -157,10 +160,10 @@ export default async function LeadsPage({
                       </Link>
                     </td>
                     <td className="tnum px-5 py-3 text-[13px]">
-                      {lead.monthly_bill ? `$${lead.monthly_bill}` : '—'}
+                      {lead.monthly_bill ? `$${lead.monthly_bill}` : '-'}
                     </td>
                     <td className="px-5 py-3 text-[13px] text-ink-2">
-                      {lead.utility_provider ?? '—'}
+                      {lead.utility_provider ?? '-'}
                     </td>
                     <td className="px-5 py-3">
                       <Badge tone={STATUS_TONE[lead.status as string] ?? 'neutral'}>

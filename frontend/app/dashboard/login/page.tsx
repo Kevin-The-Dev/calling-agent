@@ -3,7 +3,14 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, KeyRound, Loader2, Lock, Mail, ShieldCheck } from 'lucide-react';
+import {
+  ArrowLeftIcon,
+  CircleNotchIcon,
+  EnvelopeSimpleIcon,
+  KeyIcon,
+  LockIcon,
+  ShieldCheckIcon,
+} from '@phosphor-icons/react/dist/ssr';
 import { createClient } from '@/lib/supabase/client';
 import { WordmarkLink } from '@/components/brand';
 
@@ -47,7 +54,7 @@ export default function LoginPage() {
         <div
           className="absolute left-1/2 top-[-20%] size-[50rem] -translate-x-1/2 rounded-full opacity-60 animate-drift"
           style={{
-            background: 'radial-gradient(circle, var(--color-solar-wash) 0%, transparent 65%)',
+            background: 'radial-gradient(circle, var(--color-accent-wash) 0%, transparent 65%)',
           }}
         />
       </div>
@@ -63,8 +70,8 @@ export default function LoginPage() {
           className="space-y-4 rounded-2xl border border-line bg-surface p-6 shadow-card"
         >
           <div className="flex items-center gap-2.5 border-b border-line pb-4">
-            <span className="grid size-9 place-items-center rounded-lg border border-solar-line bg-solar-wash">
-              <KeyRound className="size-4 text-solar-deep" />
+            <span className="grid size-9 place-items-center rounded-lg border border-accent-line bg-accent-wash">
+              <KeyIcon className="size-4 text-accent-deep" />
             </span>
             <div>
               <h1 className="text-[14.5px] font-semibold">Sign in</h1>
@@ -83,7 +90,7 @@ export default function LoginPage() {
 
           <Field
             label="Email"
-            icon={<Mail className="size-3.5" />}
+            icon={<EnvelopeSimpleIcon className="size-3.5" />}
             type="email"
             autoComplete="username"
             value={email}
@@ -92,7 +99,7 @@ export default function LoginPage() {
 
           <Field
             label="Password"
-            icon={<Lock className="size-3.5" />}
+            icon={<LockIcon className="size-3.5" />}
             type="password"
             autoComplete="current-password"
             value={password}
@@ -102,23 +109,23 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={busy}
-            className="flex w-full items-center justify-center gap-2 rounded-full bg-ink px-4 py-3 text-[14px] font-semibold text-paper transition-colors hover:bg-solar-deep disabled:cursor-not-allowed disabled:bg-ink-4"
+            className="flex w-full items-center justify-center gap-2 rounded-full bg-ink px-4 py-3 text-[14px] font-semibold text-paper transition-colors hover:bg-accent-deep disabled:cursor-not-allowed disabled:bg-ink-4"
           >
-            {busy && <Loader2 className="size-4 animate-spin" />}
+            {busy && <CircleNotchIcon className="size-4 animate-spin" />}
             {busy ? 'Signing in…' : 'Sign in'}
           </button>
 
           <p className="flex items-center justify-center gap-1.5 pt-1 text-[12px] text-ink-3">
-            <ShieldCheck className="size-3.5" />
+            <ShieldCheckIcon className="size-3.5" />
             Protected by row-level security
           </p>
         </form>
 
         <Link
           href="/"
-          className="mt-6 flex items-center justify-center gap-1.5 text-[13px] text-ink-3 transition-colors hover:text-solar-deep"
+          className="mt-6 flex items-center justify-center gap-1.5 text-[13px] text-ink-3 transition-colors hover:text-accent-deep"
         >
-          <ArrowLeft className="size-3.5" />
+          <ArrowLeftIcon className="size-3.5" />
           Back to the call console
         </Link>
       </div>
@@ -153,7 +160,7 @@ function Field({
         autoComplete={autoComplete}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded-lg border border-line bg-sunk/50 px-3 py-2.5 text-[14px] text-ink transition-colors placeholder:text-ink-4 focus:border-solar focus:bg-surface focus:outline-none"
+        className="w-full rounded-lg border border-line bg-sunk/50 px-3 py-2.5 text-[14px] text-ink transition-colors placeholder:text-ink-4 focus:border-accent focus:bg-surface focus:outline-none"
       />
     </label>
   );

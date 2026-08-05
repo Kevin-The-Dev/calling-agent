@@ -1,5 +1,7 @@
 import Link from 'next/link';
-import { PhoneOutgoing } from 'lucide-react';
+import {
+  PhoneOutgoingIcon,
+} from '@phosphor-icons/react/dist/ssr';
 import { createClient } from '@/lib/supabase/server';
 import { WordmarkLink } from '@/components/brand';
 import { DashboardNav } from '@/components/dashboard/nav';
@@ -40,7 +42,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
             href="/call"
             className="flex items-center justify-center gap-2 rounded-lg border border-line bg-surface px-3 py-2 text-[13px] font-medium shadow-sm transition-colors hover:border-line-strong"
           >
-            <PhoneOutgoing className="size-3.5" />
+            <PhoneOutgoingIcon className="size-3.5" />
             Open call console
           </Link>
 

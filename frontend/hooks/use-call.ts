@@ -23,6 +23,7 @@ import {
   createListener,
   createSpeaker,
   detectSupport,
+  type BrowserSupport,
   type Listener,
   type Speaker,
 } from '@/voice/speech';
@@ -99,7 +100,23 @@ export function useCall(): UseCallResult {
   const [stage, setStage] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
-  const [support] = useState(() => detectSupport());
+  /**
+   * Null until the browser has been asked what it can do.
+   *
+   * `detectSupport()` reports nothing supported when there is no `window`, so
+   * running it during render meant the server produced the "this browser cannot
+   * run a voice call" alert and the client produced the consent gate. React
+   * threw out the whole tree and re-rendered it on every single page load.
+   *
+   * Detection therefore happens after mount, and until it lands the console is
+   * rendered as though the browser is fine: that matches what the server sends,
+   * and `start()` re-checks before it does anything that would matter.
+   */
+  const [support, setSupport] = useState<BrowserSupport | null>(null);
+
+  useEffect(() => {
+    setSupport(detectSupport());
+  }, []);
 
   const callRef = useRef<{ callId: string; token: string } | null>(null);
   const listenerRef = useRef<Listener | null>(null);
@@ -178,6 +195,8 @@ export function useCall(): UseCallResult {
         const decoder = new TextDecoder();
         let buffer = '';
         let reply = '';
+        /** Set once `speech-end` has released the floor, so it is not released twice. */
+        let turnClosed = false;
 
         for (;;) {
           const { done, value } = await reader.read();
@@ -206,12 +225,28 @@ export function useCall(): UseCallResult {
               // Remembered so the echo guard can recognise this sentence if the
               // microphone picks it back up off the speakers.
               spokenRef.current = [...spokenRef.current, normalize(text)].slice(-ECHO_MEMORY);
+            } else if (event === 'speech-end') {
+              // Every sentence has been sent. Close the turn here rather than
+              // when the response body ends: the server keeps the stream open
+              // while it extracts state and writes to the database, and holding
+              // the microphone through that is a second of dead air after the
+              // agent has plainly stopped talking — the single thing that makes
+              // the call feel slow to the person on the other end.
+              speakerRef.current?.endTurn();
+              turnClosed = true;
             } else if (event === 'done') {
               setStage(String(payload['stage'] ?? ''));
               if (payload['finished'] === true) {
                 finishedRef.current = true;
                 setOutcome(String(payload['outcome'] ?? 'ended'));
               }
+              // The server has folded this turn into the state the next one
+              // will read. Everything after this point on the wire is the
+              // transcript being written, which the next turn does not depend
+              // on — so stop refusing new utterances here rather than at the
+              // end of the body, or a quick answer lands while we are still
+              // "busy" and is dropped without a trace.
+              busyRef.current = false;
             } else if (event === 'error') {
               const errPayload = payload['error'] as { message?: string } | undefined;
               throw new Error(errPayload?.message ?? 'The call service failed');
@@ -221,9 +256,10 @@ export function useCall(): UseCallResult {
 
         if (reply) append('agent', reply);
 
-        // No more sentences are coming. The floor is released once the queue
-        // finishes draining, which is usually well after this line.
-        speakerRef.current?.endTurn();
+        // Normally `speech-end` already did this. This covers the turn that
+        // never got there — an old server, or a stream that ended early — and
+        // leaving the floor held is a call that never hears anything again.
+        if (!turnClosed) speakerRef.current?.endTurn();
       } catch (err) {
         // Barge-in and hang-up abort the request after cancelling the speaker,
         // which has already released the floor.
@@ -233,8 +269,15 @@ export function useCall(): UseCallResult {
         // is a dead call: the prospect talks and nothing is ever heard again.
         speakerRef.current?.endTurn();
       } finally {
-        busyRef.current = false;
-        abortRef.current = null;
+        // `done` normally cleared this already. Only ever clear on behalf of
+        // *this* turn: the prospect can now answer while the previous request
+        // is still writing its transcript, so by the time this runs the refs may
+        // belong to the turn after it — and blanking those would leave the next
+        // reply unabortable on barge-in and let a third turn overlap it.
+        if (abortRef.current === controller) {
+          busyRef.current = false;
+          abortRef.current = null;
+        }
       }
     },
     [append],
@@ -270,8 +313,11 @@ export function useCall(): UseCallResult {
   }, []);
 
   const start = useCallback(async () => {
-    if (!support.supported) {
-      setError(support.reason ?? 'This browser cannot run a voice call.');
+    // Re-read rather than trust the render: detection lands a tick after mount,
+    // and this is the moment it actually has to be right.
+    const capability = support ?? detectSupport();
+    if (!capability.supported) {
+      setError(capability.reason ?? 'This browser cannot run a voice call.');
       return;
     }
 
@@ -452,8 +498,10 @@ export function useCall(): UseCallResult {
     stage,
     outcome,
     elapsed,
-    supported: support.supported,
-    supportReason: support.reason,
+    // Optimistic until detection lands, so the first client render matches the
+    // server's and the console does not flash an error it has not established.
+    supported: support?.supported ?? true,
+    supportReason: support?.reason,
     readLevel,
     start,
     end,

@@ -1,7 +1,11 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { CircleAlert, CircleCheck, Loader2 } from 'lucide-react';
+import {
+  CheckCircleIcon,
+  CircleNotchIcon,
+  WarningCircleIcon,
+} from '@phosphor-icons/react/dist/ssr';
 import { api, ApiError } from '@/lib/api';
 
 type State =
@@ -58,9 +62,9 @@ export function SystemStatus() {
       aria-live="polite"
       aria-busy={state.kind === 'loading'}
     >
-      {state.kind === 'loading' && <Loader2 className="size-3.5 shrink-0 animate-spin" />}
-      {state.kind === 'ok' && <CircleCheck className="size-3.5 shrink-0" />}
-      {state.kind === 'error' && <CircleAlert className="size-3.5 shrink-0" />}
+      {state.kind === 'loading' && <CircleNotchIcon className="size-3.5 shrink-0 animate-spin" />}
+      {state.kind === 'ok' && <CheckCircleIcon className="size-3.5 shrink-0" />}
+      {state.kind === 'error' && <WarningCircleIcon className="size-3.5 shrink-0" />}
 
       <span>
         {state.kind === 'loading' && 'Checking the call service…'}

@@ -18,7 +18,7 @@ const IDENTITY: AgentIdentity = {
   callbackNumber: undefined,
 };
 
-function makeState(stage: Stage, lead: Lead = {}): CallState {
+function makeState(stage: Stage, lead: Lead = {}, beats?: CallState['beats']): CallState {
   return {
     callId: 'call-1',
     leadId: 'lead-1',
@@ -36,12 +36,14 @@ function makeState(stage: Stage, lead: Lead = {}): CallState {
     disqualifiedReason: null,
     doNotContact: false,
     outcome: null,
+    appointment: null,
+    beats: beats ?? { sgip: false, pitch: false },
   };
 }
 
-const build = (stage: Stage, lead: Lead = {}, now?: Date) =>
+const build = (stage: Stage, lead: Lead = {}, now?: Date, beats?: CallState['beats']) =>
   buildSystemPrompt({
-    state: makeState(stage, lead),
+    state: makeState(stage, lead, beats),
     identity: IDENTITY,
     objection: null,
     ...(now ? { now } : {}),
@@ -105,11 +107,21 @@ describe('calendar awareness', () => {
   // A Wednesday, so "tomorrow" and "+14 days" are both unambiguous.
   const NOW = new Date('2026-08-05T18:00:00Z');
 
-  it('gives the agent today, the earliest slot, and the horizon when booking', () => {
+  it('gives the agent today, the bookable days, and the horizon', () => {
     const prompt = build('appointment', { timezone: 'America/Los_Angeles' }, NOW);
     expect(prompt).toMatch(/Today is Wednesday, August 5/);
-    expect(prompt).toMatch(/earliest you may offer is tomorrow, Thursday, August 6/);
-    expect(prompt).toMatch(/The latest is Wednesday, August 19/);
+    expect(prompt).toMatch(/Today is NOT bookable/);
+    expect(prompt).toMatch(/up to Wednesday, August 19/);
+  });
+
+  // Told only the range, the model paired a weekday with a date that did not
+  // belong to it — "this Thursday, the 5th", when the 5th was a Wednesday.
+  it('enumerates each bookable day with its own date', () => {
+    const prompt = build('appointment', { timezone: 'America/Los_Angeles' }, NOW);
+    expect(prompt).toMatch(/- Thursday, August 6/);
+    expect(prompt).toMatch(/- Friday, August 7/);
+    expect(prompt).toMatch(/- Wednesday, August 12/);
+    expect(prompt).not.toMatch(/- Wednesday, August 5/);
   });
 
   it('renders the date in the lead’s timezone, not the server’s', () => {
@@ -121,5 +133,42 @@ describe('calendar awareness', () => {
   it('omits the calendar before there is any reason to speak a date', () => {
     expect(build('qualification')).not.toMatch(/RIGHT NOW/);
     expect(build('appointment')).toMatch(/RIGHT NOW/);
+  });
+});
+
+describe('the agreed slot', () => {
+  const AGREED = {
+    at: '2026-08-06T21:00:00.000Z',
+    timezone: 'America/Los_Angeles',
+    conflictChecked: true,
+  };
+
+  const withAppointment = (stage: Stage) =>
+    buildSystemPrompt({
+      state: { ...makeState(stage, { timezone: 'America/Los_Angeles' }), appointment: AGREED },
+      identity: IDENTITY,
+      objection: null,
+    });
+
+  // The recap used to re-invent a time several turns after one was agreed, and
+  // the two did not match — a no-show waiting to happen.
+  it('reads the agreed time back in the closing recap', () => {
+    const prompt = withAppointment('closing');
+    expect(prompt).toMatch(/ALREADY AGREED: Thursday, August 6.*2:00/);
+    expect(prompt).toMatch(/Do NOT offer another slot/);
+  });
+
+  it('stops offering slots once one is agreed', () => {
+    expect(withAppointment('confirmation')).not.toMatch(/earliest you may offer/);
+  });
+
+  it('tells the extractor what day it is so relative days resolve', () => {
+    const prompt = buildExtractorPrompt(
+      makeState('appointment', { timezone: 'America/Los_Angeles' }),
+      new Date('2026-08-05T18:00:00Z'),
+    );
+    expect(prompt).toMatch(/TODAY is Wednesday, 2026-08-05/);
+    expect(prompt).toMatch(/never a UTC\s+instant/);
+    expect(prompt).toMatch(/appointment_date \/ appointment_time/);
   });
 });

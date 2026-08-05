@@ -170,27 +170,51 @@ export function nextStage(
   }
 
   // Never skip. A model proposing "appointment" from "rapport" advances one
-  // step to "qualification" instead of being obeyed.
-  if (proposedIndex !== current + 1) {
-    const nextAllowed = LINEAR_STAGES[current + 1];
-    return {
-      stage: nextAllowed ?? state.stage,
-      returnStage: null,
-      rejectedProposal: proposed,
-    };
-  }
+  // step to "qualification" instead of being obeyed — but that one step is
+  // still a step, and it is still subject to every gate below. An earlier
+  // version returned here, which meant proposing a stage far enough ahead was a
+  // way *past* the gates rather than into them: the agent that finished
+  // qualifying and asked for a time in the same breath was proposing
+  // "appointment", and got handed the next stage without the pitch ever being
+  // checked for.
+  const skipping = proposedIndex !== current + 1;
+  const target = skipping ? LINEAR_STAGES[current + 1] : proposed;
+  if (!target) return { stage: state.stage, returnStage: null, rejectedProposal: proposed };
+
+  const rejected = skipping ? { rejectedProposal: proposed } : {};
+  const hold = (reason?: Stage) => ({
+    stage: state.stage,
+    returnStage: null,
+    rejectedProposal: reason ?? proposed,
+  });
+
+  // Gate: rapport → qualification requires SGIP to have actually been named.
+  //
+  // The reason for the call is the beat that buys everything after it. Left on
+  // turn count alone the agent asked about the letter, the stage moved on, and
+  // the prospect was interrogated about their bill having never been told what
+  // any of it was for. See agents/beats.ts.
+  if (state.stage === 'rapport' && !state.beats.sgip) return hold();
 
   // Gate: qualification → need_discovery requires the completeness gate.
-  if (state.stage === 'qualification' && !checkCompletenessGate(state.lead).passed) {
-    return { stage: 'qualification', returnStage: null, rejectedProposal: proposed };
+  if (state.stage === 'qualification' && !checkCompletenessGate(state.lead).passed) return hold();
+
+  // Gate: value_pitch → appointment requires the bill swap to have been given.
+  // Nobody agrees to an engineer coming to their home without being told why.
+  if (state.stage === 'value_pitch' && !state.beats.pitch) return hold();
+
+  // Gate: appointment → confirmation requires decision makers AND an agreed slot.
+  if (
+    state.stage === 'appointment' &&
+    ((state.lead.decision_makers ?? []).length === 0 || state.appointment === null)
+  ) {
+    return hold();
   }
 
-  // Gate: appointment → confirmation requires identified decision makers.
-  if (state.stage === 'appointment' && (state.lead.decision_makers ?? []).length === 0) {
-    return { stage: 'appointment', returnStage: null, rejectedProposal: proposed };
-  }
+  // Gate: confirmation → closing requires something to actually recap.
+  if (state.stage === 'confirmation' && state.appointment === null) return hold();
 
-  return { stage: proposed, returnStage: null };
+  return { stage: target, returnStage: null, ...rejected };
 }
 
 /**
@@ -206,9 +230,10 @@ function autoAdvance(state: CallState): Stage | null {
       return lead.homeowner_confirmed === true ? 'rapport' : null;
 
     case 'rapport':
-      // Rapport is a delivery beat, not a data-gathering one. Once the agent
-      // has spoken it and the prospect has engaged at all, move on.
-      return state.turnCount >= 2 ? 'qualification' : null;
+      // Rapport is a delivery beat, not a data-gathering one — so the only
+      // thing that can end it is having delivered it. Turn count alone let the
+      // beat expire before SGIP had been named even once.
+      return state.beats.sgip ? 'qualification' : null;
 
     case 'qualification':
       return checkCompletenessGate(lead).passed ? 'need_discovery' : null;
@@ -217,17 +242,22 @@ function autoAdvance(state: CallState): Stage | null {
       return (lead.pain_points ?? []).length > 0 || state.turnCount >= 6 ? 'value_pitch' : null;
 
     case 'value_pitch':
-      // One turn is enough: the pitch is delivered in a single reply.
-      return 'appointment';
+      // One turn is enough — provided the turn actually contained the pitch.
+      return state.beats.pitch ? 'appointment' : null;
 
     case 'appointment':
-      return (lead.decision_makers ?? []).length > 0 ? 'confirmation' : null;
+      // Script §6 ends when a slot has actually been agreed, not merely when
+      // decision makers are known. Advancing on decision makers alone let the
+      // call reach the lock step with nothing to lock.
+      return (lead.decision_makers ?? []).length > 0 && state.appointment !== null
+        ? 'confirmation'
+        : null;
 
     case 'confirmation':
-      // The recap reads back a number the confirmation text will go to, so the
-      // number has to exist first. Relying on the model to propose `closing`
-      // meant it sometimes recapped before it had ever asked for one.
-      return lead.phone ? 'closing' : null;
+      // The recap reads back a time and a number, so both have to exist. Gating
+      // on the phone alone sent a call that happened to give its number early
+      // straight to the recap, before any time had been proposed.
+      return state.appointment !== null && lead.phone ? 'closing' : null;
 
     default:
       return null;

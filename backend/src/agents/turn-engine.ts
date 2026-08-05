@@ -35,12 +35,15 @@ import {
   type Stage,
   type TranscriptTurn,
 } from '../types/domain.js';
+import { isBookable, resolveLocalTime } from '../lib/local-time.js';
+import { mergeBeats } from './beats.js';
 import { applyGuardrails, safeFallback, type GuardrailViolation } from './guardrails.js';
+import { openingLine } from './opening.js';
 import { scoreLead } from './scoring.js';
 import { nextStage, resolveOutcome } from './state-machine.js';
 
 /** JSON Schema handed to the extractor model. */
-const EXTRACTION_TOOL_SCHEMA = {
+export const EXTRACTION_TOOL_SCHEMA = {
   type: 'object' as const,
   properties: {
     lead_patch: {
@@ -107,6 +110,26 @@ const EXTRACTION_TOOL_SCHEMA = {
     buying_intent: { type: 'string', enum: ['low', 'medium', 'high'] },
     requests_do_not_contact: { type: 'boolean' },
     prospect_ended_call: { type: 'boolean' },
+    // Two flat strings rather than a nested object: smaller extraction models
+    // skip an optional nested object far more often than they skip a top-level
+    // field, and this one going missing loses the entire booking.
+    appointment_date: {
+      type: 'string',
+      description:
+        'YYYY-MM-DD, the prospect’s LOCAL date, set the moment they accept a proposed slot ' +
+        '("yeah that works", "sure", "that\'s fine"). Resolve relative days against TODAY. ' +
+        'Omit only while a time is still being negotiated or they named just a window.',
+    },
+    appointment_time: {
+      type: 'string',
+      description: 'HH:MM, 24-hour, the prospect’s LOCAL time. Required whenever a date is set.',
+    },
+    appointment_conflict_checked: {
+      type: 'boolean',
+      description:
+        'True once they have confirmed nothing would keep them from that time — a doctor’s ' +
+        'appointment, another commitment, anything.',
+    },
   },
   required: ['lead_patch'],
 };
@@ -116,10 +139,22 @@ export interface TurnInput {
   utterance: string;
   history: TranscriptTurn[];
   identity: AgentIdentity;
+  /**
+   * The call has just connected and the prospect has not spoken yet. The agent
+   * opens with a written line rather than a generated one — see `opening.ts`.
+   */
+  isCallStart?: boolean;
 }
 
 export interface TurnOutput {
-  /** Sentences in order, as they become speakable. */
+  /**
+   * Sentences in order, as they become speakable.
+   *
+   * This iterator ends the moment the last spoken sentence has been handed over
+   * — deliberately *before* extraction and persistence finish. The client gives
+   * the microphone back when this drains, so anything awaited inside it is dead
+   * air the prospect sits through after the agent has stopped talking.
+   */
   sentences: AsyncIterable<string>;
   /** Resolves once the reply is complete and all state has been folded in. */
   result: Promise<TurnResult>;
@@ -176,20 +211,77 @@ function drainSentences(buffer: string): { sentences: string[]; rest: string } {
   return { sentences, rest };
 }
 
+/**
+ * Ends a stream that has gone quiet mid-reply.
+ *
+ * The provider's timeout covers the whole request. That is the right budget
+ * before anything has been said and the wrong one after: caught in end-to-end
+ * testing with a reply that produced "Perfect, Dave." and then stalled, the
+ * turn sat on the full fifteen-second budget before giving up, and the prospect
+ * spent fourteen of those seconds listening to nothing with the microphone
+ * still held. Whatever arrived before the silence is a better turn than that.
+ *
+ * The clock only starts after the first chunk, so a model that takes a moment
+ * to begin is not cut off before it has said anything.
+ */
+export async function* withStallGuard<T>(
+  source: AsyncIterable<T>,
+  stallMs: number,
+  onStall: () => void,
+): AsyncGenerator<T> {
+  const iterator = source[Symbol.asyncIterator]();
+  let started = false;
+
+  for (;;) {
+    const pending = iterator.next();
+
+    if (started) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const stalled = new Promise<'stalled'>((resolve) => {
+        timer = setTimeout(() => resolve('stalled'), stallMs);
+      });
+
+      const raced = await Promise.race([pending, stalled]).finally(() => clearTimeout(timer));
+
+      if (raced === 'stalled') {
+        // `onStall` is what actually tears the connection down; `return()`
+        // alone cannot, because the generator is parked on a read that will
+        // never resolve and its `finally` therefore never runs. Neither is
+        // awaited: waiting on the dead stream is the wait this function exists
+        // to avoid.
+        onStall();
+        void iterator.return?.().catch(() => undefined);
+        return;
+      }
+
+      if (raced.done) return;
+      yield raced.value;
+      continue;
+    }
+
+    const first = await pending;
+    if (first.done) return;
+    started = true;
+    yield first.value;
+  }
+}
+
 export function runTurn(
   env: Env,
   provider: LlmProvider,
   input: TurnInput,
 ): TurnOutput {
-  const { state, utterance, history, identity } = input;
+  const { state, utterance, history, identity, isCallStart } = input;
   const logger = createLogger(env.LOG_LEVEL, { component: 'turn-engine', callId: state.callId });
   const startedAt = Date.now();
 
   // ── Pre-flight detection, before any model call ──────────────────────────
   // These are deterministic and must not depend on the model noticing them.
-  const doNotContact = detectDoNotContact(utterance);
-  const hostile = detectHostility(utterance);
-  const objection = doNotContact ? null : matchObjection(utterance, state.stage, state.returnStage);
+  // The opening turn has no prospect utterance to detect anything in.
+  const doNotContact = !isCallStart && detectDoNotContact(utterance);
+  const hostile = !isCallStart && detectHostility(utterance);
+  const objection =
+    isCallStart || doNotContact ? null : matchObjection(utterance, state.stage, state.returnStage);
 
   // The generator always resolves this — generation failures fall back to a
   // safe line rather than rejecting, so a broken turn never breaks the call.
@@ -216,6 +308,16 @@ export function runTurn(
       return;
     }
 
+    // The agent opens the call. The line is written, not generated: it is the
+    // one turn the prospect waits on in silence, and the one line the script is
+    // most specific about. See opening.ts.
+    if (isCallStart) {
+      const line = openingLine(identity);
+      yield line;
+      resolveResult(finish(line, [], false, null, Date.now() - startedAt, 0, 0, false, false));
+      return;
+    }
+
     const systemPrompt = buildSystemPrompt({ state, identity, objection });
 
     // Fire the extractor now so it runs alongside generation rather than after.
@@ -236,11 +338,17 @@ export function runTurn(
     let tokensOut = 0;
 
     try {
+      // Aborted by the stall guard below. Calling `return()` on a generator
+      // that is parked on a read which never resolves does not run its cleanup
+      // — the only thing that ends a dead connection is closing it.
+      const generation = new AbortController();
+
       const stream = await provider.streamText({
         system: systemPrompt,
         messages: toMessages(history, utterance),
         maxTokens: env.LLM_MAX_TOKENS,
         temperature: env.LLM_TEMPERATURE,
+        signal: generation.signal,
       });
 
       let buffer = '';
@@ -248,7 +356,12 @@ export function runTurn(
       // one-question rule is relaxed there and only there.
       const enforceOneQuestion = state.stage !== 'closing';
 
-      for await (const chunk of stream.chunks) {
+      const guarded = withStallGuard(stream.chunks, env.LLM_STREAM_STALL_MS, () => {
+        logger.warn('generation_stalled', { afterMs: Date.now() - startedAt });
+        generation.abort(new Error('stalled'));
+      });
+
+      for await (const chunk of guarded) {
         if (firstTokenAt === 0) firstTokenAt = Date.now() - startedAt;
         buffer += chunk;
 
@@ -285,9 +398,16 @@ export function runTurn(
         }
       }
 
-      const usage = await stream.usage;
-      tokensIn = usage.inputTokens;
-      tokensOut = usage.outputTokens;
+      // Never blocked on. Usage settles when the provider's reader closes, and
+      // on a stalled stream that does not happen until the request timeout
+      // fires — which would hand the wait straight back to the prospect this
+      // function just rescued. Token counts are analytics; the turn is not.
+      const usage = await Promise.race([
+        stream.usage,
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 250)),
+      ]);
+      tokensIn = usage?.inputTokens ?? 0;
+      tokensOut = usage?.outputTokens ?? 0;
     } catch (err) {
       logger.error('generation_failed', {
         message: err instanceof Error ? err.message : String(err),
@@ -308,21 +428,29 @@ export function runTurn(
       });
     }
 
-    const extraction = await extractionPromise;
-    resolveResult(
-      finish(
-        spoken,
-        violations,
-        usedFallback,
-        objection?.entry.id ?? null,
-        firstTokenAt,
-        tokensIn,
-        tokensOut,
-        false,
-        false,
-        extraction,
-      ),
-    );
+    // Detached on purpose. An `await` here would keep this generator open, and
+    // the client hands the microphone back when the generator drains — so
+    // waiting on the extractor would mean the prospect stares at silence for as
+    // long as a second model call takes, every single turn, after the agent has
+    // already finished speaking.
+    const spokenText = spoken;
+    const finalViolations = [...violations];
+    void extractionPromise.then((extraction) => {
+      resolveResult(
+        finish(
+          spokenText,
+          finalViolations,
+          usedFallback,
+          objection?.entry.id ?? null,
+          firstTokenAt,
+          tokensIn,
+          tokensOut,
+          false,
+          false,
+          extraction,
+        ),
+      );
+    });
   }
 
   /** Folds the turn's outcome into a new immutable CallState. */
@@ -341,6 +469,53 @@ export function runTurn(
     const patch = extraction?.lead_patch ?? {};
     const lead = { ...state.lead, ...stripEmpty(patch) };
 
+    // The agreed slot, resolved server-side. Once set it is only replaced by
+    // another agreed slot — a later turn that simply does not mention the time
+    // must not erase it, or the recap loses the booking again.
+    const zone = lead.timezone ?? env.DEFAULT_TIMEZONE;
+    const { appointment_date: apptDate, appointment_time: apptTime } = extraction ?? {};
+    // "2:00" is as likely as "14:00" from a model reading back "two o'clock".
+    const normalizedTime = apptTime ? apptTime.padStart(5, '0') : null;
+    let proposed =
+      apptDate && normalizedTime ? resolveLocalTime(apptDate, normalizedTime, zone) : null;
+
+    if (proposed === null && apptDate) {
+      logger.warn('appointment_unparseable', { date: apptDate, time: apptTime, zone });
+    }
+
+    // The model does book outside the window it was given — caught agreeing to
+    // "Wednesday at 2pm" on a Wednesday, which is an appointment in the past by
+    // the time anyone reads it. Discard rather than store: the agent will be
+    // shown the calendar again next turn and propose a real slot.
+    if (proposed) {
+      const bookable = isBookable(proposed, new Date(), zone);
+      if (!bookable.ok) {
+        logger.warn('appointment_out_of_window', {
+          at: proposed.toISOString(),
+          reason: bookable.reason,
+          zone,
+        });
+        proposed = null;
+      }
+    }
+
+    const appointment: CallState['appointment'] = proposed
+      ? {
+          at: proposed.toISOString(),
+          timezone: zone,
+          conflictChecked:
+            extraction?.appointment_conflict_checked === true ||
+            state.appointment?.conflictChecked === true,
+        }
+      : state.appointment
+        ? {
+            ...state.appointment,
+            conflictChecked:
+              extraction?.appointment_conflict_checked === true ||
+              state.appointment.conflictChecked,
+          }
+        : null;
+
     const buyingIntent = extraction?.buying_intent ?? state.buyingIntent;
     const scored = scoreLead(lead, buyingIntent);
 
@@ -352,11 +527,16 @@ export function runTurn(
     const interim: CallState = {
       ...state,
       lead,
+      appointment,
       qualificationScore: scored.score,
       qualificationBand: scored.band,
       buyingIntent,
       earlyObjectionCount,
       lateObjectionCount,
+      // Folded in before the transition is decided, so the gates see the beat
+      // this very reply just delivered rather than the one before it — a turn
+      // that finally names SGIP should be the turn that ends rapport.
+      beats: mergeBeats(state.beats, reply),
     };
 
     const transition = nextStage(interim, {
@@ -428,6 +608,49 @@ function stripEmpty<T extends Record<string, unknown>>(patch: T): Partial<T> {
   return out as Partial<T>;
 }
 
+/** Keys the model reliably puts in the wrong place. */
+const HOISTED_KEYS = [
+  'appointment_date',
+  'appointment_time',
+  'appointment_conflict_checked',
+] as const;
+
+/**
+ * Lifts misplaced top-level fields out of `lead_patch`.
+ *
+ * `lead_patch` is the first and largest object in the tool schema, and the
+ * extractor puts the appointment fields inside it perhaps half the time —
+ * observed directly against glm-4.5-flash, which returned
+ * `{lead_patch: {appointment_date: …}}` for the same exchange it had answered
+ * correctly a moment earlier. `leadSchema.partial()` then strips them silently,
+ * so a booking the prospect had verbally agreed to vanished before anything saw
+ * it, and the only symptom was an appointment that never got written.
+ *
+ * Accepting both shapes is cheaper and far more reliable than trying to prompt
+ * the placement out of the model.
+ */
+export function normalizeExtraction(raw: unknown): unknown {
+  if (typeof raw !== 'object' || raw === null) return raw;
+
+  const record = { ...(raw as Record<string, unknown>) };
+  const patch = record['lead_patch'];
+  if (typeof patch !== 'object' || patch === null) return record;
+
+  const patchRecord = { ...(patch as Record<string, unknown>) };
+  let moved = false;
+
+  for (const key of HOISTED_KEYS) {
+    if (!(key in patchRecord)) continue;
+    // A correctly-placed value wins; this only fills a gap.
+    if (record[key] === undefined || record[key] === null) record[key] = patchRecord[key];
+    delete patchRecord[key];
+    moved = true;
+  }
+
+  if (moved) record['lead_patch'] = patchRecord;
+  return record;
+}
+
 async function extract(
   provider: LlmProvider,
   state: CallState,
@@ -447,7 +670,7 @@ async function extract(
     schema: EXTRACTION_TOOL_SCHEMA,
     toolName: 'record_extraction',
     toolDescription: 'Record what was learned about the lead in this exchange.',
-    parse: (raw) => extractionSchema.parse(raw),
+    parse: (raw) => extractionSchema.parse(normalizeExtraction(raw)),
   });
 
   return data;
