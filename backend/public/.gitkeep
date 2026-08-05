@@ -1,0 +1,10 @@
+# Intentionally empty.
+#
+# The backend is a functions-only deploy: `api/index.ts` handles every request
+# and vercel.json rewrites `/(.*)` to it, so nothing static is ever served. But
+# the build still has to produce an output directory or Vercel fails the deploy
+# with "No Output Directory named 'public' found" — `buildCommand` here is
+# `pnpm typecheck`, which emits no files at all.
+#
+# So this directory exists to be found and left alone. Git does not track empty
+# directories, which is why this file is here rather than nothing.
