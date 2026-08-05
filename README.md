@@ -375,11 +375,29 @@ The design rules the redesign was audited against are vendored in
 | Framework Preset | Other |
 | Build Command | `pnpm typecheck` |
 | Install Command | `pnpm install` |
+| Output Directory | `public` |
 | Node.js Version | 20.x or later |
 | **Include source files outside of the Root Directory** | **On** |
+| **Deployment Protection → Vercel Authentication** | **Off** |
+| Application Preset (on first import) | Other — **not** "Services" |
 
-That last one is not optional: `backend/tsconfig.json` extends `../tsconfig.base.json` and the pnpm
-workspace manifest lives at the repository root. With it off, install and typecheck both fail.
+Four of these bite if you get them wrong:
+
+- **Include source files outside the Root Directory** is not optional: `backend/tsconfig.json`
+  extends `../tsconfig.base.json` and the pnpm workspace manifest lives at the repository root.
+  With it off, install and typecheck both fail.
+- **Output Directory** is why `backend/public/` exists and is otherwise empty. The build command
+  only typechecks and emits no files, so without a directory to find Vercel fails the deploy with
+  *No Output Directory named "public" found*. Nothing is ever served from it — every request is
+  rewritten to `api/index.ts`.
+- **Deployment Protection** must be off. With it on, Vercel answers every request — including the
+  browser's `fetch` from the frontend — with a redirect to an SSO login page. The frontend sees
+  this as a failed cross-origin request and reports `Failed to fetch`, which looks identical to the
+  backend being down. Check it with `curl -I https://<backend>/api/health`: a `302` means
+  protection is still on.
+- **Application Preset**: choosing "Services" on import puts Vercel in multi-service mode, which
+  demands a root `vercel.json` declaring both apps. This repo deploys as two independent projects
+  instead, so pick "Other".
 
 Environment variables — copy from `backend/.env`:
 `GLM_API_KEY` · `GLM_BASE_URL` · `GLM_API_STYLE` · `GLM_MODEL` · `GLM_EXTRACTOR_MODEL` ·
@@ -399,8 +417,23 @@ Do **not** set `SUPABASE_DB_URL` or `SUPABASE_DB_PASSWORD` — they are only use
 Environment variables: `NEXT_PUBLIC_SUPABASE_URL` · `NEXT_PUBLIC_SUPABASE_ANON_KEY` ·
 `NEXT_PUBLIC_API_BASE_URL` (your deployed backend URL) · `NEXT_PUBLIC_SITE_URL`
 
+> **`NEXT_PUBLIC_*` values are baked in at build time, not read at runtime.** Setting or changing
+> one in the Vercel dashboard does nothing to a site that is already built — you have to redeploy.
+> A frontend deployed before `NEXT_PUBLIC_API_BASE_URL` was set keeps whatever `.env.local` had,
+> which is `http://localhost:8787`, so every visitor's browser tries to reach a server on their own
+> machine. The call console names this case explicitly when it happens.
+
 Deploy the backend first — the frontend needs its URL, and the backend needs the frontend's URL in
 `ALLOWED_ORIGINS`. Set that on the backend once both exist and redeploy it.
+
+**Order that works:**
+
+1. Deploy the backend. Confirm `curl https://<backend>/api/health` returns JSON — not a `302`,
+   which means Deployment Protection is still on.
+2. Set `NEXT_PUBLIC_API_BASE_URL` on the frontend project to that backend URL, then **redeploy the
+   frontend** so the value is compiled in.
+3. Set `ALLOWED_ORIGINS` on the backend to the frontend's URL, then redeploy the backend.
+4. Load the site. The status pill should read `Call service ready · v<version>`.
 
 ### Self-contained by design
 
@@ -442,6 +475,32 @@ It is missing a field it cannot progress without. Check the call's stage in
 
 `ALLOWED_ORIGINS` on the backend must contain the frontend's exact origin, scheme included, no
 trailing slash. Preview deployments have different URLs than production.
+
+### `Failed to fetch` / "Could not reach the call service"
+
+The browser refuses to say which of these it was, so work through them in order. Each is a complete
+explanation on its own, and more than one is usually true at once.
+
+```bash
+curl -i https://<backend>/api/health
+```
+
+| What you get | What it means |
+| --- | --- |
+| Connection refused, no response | No successful production deployment. Check the newest build in the Vercel Deployments list, not the one you last opened. |
+| `302` to `vercel.com/sso` | Deployment Protection is on for the backend project. Turn off Vercel Authentication. |
+| `200` with JSON | The backend is fine — the problem is on the frontend side. Continue below. |
+
+If the backend answers but the site still cannot reach it:
+
+1. **Open the deployed page's devtools and look at the failing request's URL.** If it points at
+   `localhost`, the frontend was built without `NEXT_PUBLIC_API_BASE_URL`. Set it and redeploy —
+   setting it alone changes nothing, because the value is compiled into the bundle.
+2. **Otherwise it is CORS.** Add the frontend's exact origin to `ALLOWED_ORIGINS` on the backend
+   and redeploy the backend.
+
+The version in the health response tells you which build you are actually talking to, which settles
+the common case of having fixed something and still being served the old bundle.
 
 ### `curl /api/ready` returns unhealthy
 

@@ -18,6 +18,7 @@
  *     recording indicators and, on some browsers, fail outright.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { fetchApi } from '@/lib/api';
 import { getPublicEnv } from '@/lib/env';
 import {
   createListener,
@@ -175,8 +176,7 @@ export function useCall(): UseCallResult {
       abortRef.current = controller;
 
       try {
-        const { apiBaseUrl } = getPublicEnv();
-        const response = await fetch(`${apiBaseUrl}/api/calls/${call.callId}/turn`, {
+        const response = await fetchApi(`/api/calls/${call.callId}/turn`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-Call-Token': call.token },
           body: JSON.stringify(
@@ -294,10 +294,9 @@ export function useCall(): UseCallResult {
       const blob = await recorder.stop();
       if (!blob || blob.size === 0) return;
 
-      const { apiBaseUrl } = getPublicEnv();
       const seconds = Math.max(1, Math.round((Date.now() - startedAtRef.current) / 1000));
 
-      await fetch(`${apiBaseUrl}/api/calls/${call.callId}/recording`, {
+      await fetchApi(`/api/calls/${call.callId}/recording`, {
         method: 'POST',
         headers: {
           'Content-Type': blob.type || 'audio/webm',
@@ -345,8 +344,8 @@ export function useCall(): UseCallResult {
     }
 
     try {
-      const { apiBaseUrl, sttLanguage, endpointMs } = getPublicEnv();
-      const response = await fetch(`${apiBaseUrl}/api/calls`, {
+      const { sttLanguage, endpointMs } = getPublicEnv();
+      const response = await fetchApi('/api/calls', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ consent: true }),
@@ -447,8 +446,7 @@ export function useCall(): UseCallResult {
     // needs no outcome, so making them wait on each other only delays both.
     const [finalize] = await Promise.allSettled([
       (async () => {
-        const { apiBaseUrl } = getPublicEnv();
-        const response = await fetch(`${apiBaseUrl}/api/calls/${call.callId}/end`, {
+        const response = await fetchApi(`/api/calls/${call.callId}/end`, {
           method: 'POST',
           headers: { 'X-Call-Token': call.token },
         });

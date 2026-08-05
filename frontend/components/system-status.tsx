@@ -6,7 +6,7 @@ import {
   CircleNotchIcon,
   WarningCircleIcon,
 } from '@phosphor-icons/react/dist/ssr';
-import { api, ApiError } from '@/lib/api';
+import { api, ApiError, ApiUnreachableError } from '@/lib/api';
 
 type State =
   | { kind: 'loading' }
@@ -36,8 +36,11 @@ export function SystemStatus() {
         if (cancelled) return;
         setState({
           kind: 'error',
+          // `ApiUnreachableError` already explains which URL failed and why,
+          // which is the whole point of it — passing it through unchanged beats
+          // the generic line this used to show for every possible failure.
           message:
-            err instanceof ApiError
+            err instanceof ApiError || err instanceof ApiUnreachableError
               ? err.message
               : 'Could not reach the call service. Is the backend running?',
         });
