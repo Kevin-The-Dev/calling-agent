@@ -7,6 +7,7 @@ import {
   WarningCircleIcon,
 } from '@phosphor-icons/react/dist/ssr';
 import { api, ApiError, ApiUnreachableError } from '@/lib/api';
+import { getPublicEnv } from '@/lib/env';
 
 type State =
   | { kind: 'loading' }
@@ -22,6 +23,7 @@ type State =
  */
 export function SystemStatus() {
   const [state, setState] = useState<State>({ kind: 'loading' });
+  const { appVersion } = getPublicEnv();
 
   useEffect(() => {
     let cancelled = false;
@@ -71,8 +73,14 @@ export function SystemStatus() {
 
       <span>
         {state.kind === 'loading' && 'Checking the call service…'}
-        {state.kind === 'ok' && `Call service ready · v${state.version}`}
-        {state.kind === 'error' && state.message}
+        {/*
+          Both versions, always. The frontend's comes from its own bundle and
+          the backend's comes over the wire, so a mismatch is visible proof that
+          one of the two deploys did not land — the thing that is otherwise
+          impossible to tell apart from a setting that did not take effect.
+        */}
+        {state.kind === 'ok' && `Call service ready · web v${appVersion} · api v${state.version}`}
+        {state.kind === 'error' && `${state.message} (web v${appVersion})`}
       </span>
     </div>
   );

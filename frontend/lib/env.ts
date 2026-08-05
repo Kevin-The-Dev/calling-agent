@@ -16,6 +16,8 @@ const publicEnvSchema = z.object({
     .url('NEXT_PUBLIC_SUPABASE_URL must be the API project URL (https://<ref>.supabase.co)'),
   supabaseAnonKey: z.string().min(1, 'NEXT_PUBLIC_SUPABASE_ANON_KEY is required'),
   apiBaseUrl: z.string().url('NEXT_PUBLIC_API_BASE_URL must be a valid URL'),
+  /** This bundle's own version, injected from package.json by next.config.ts. */
+  appVersion: z.string().default('dev'),
   siteUrl: z.string().url(),
   voiceMode: z.enum(['browser', 'provider']).default('browser'),
   sttLanguage: z.string().default('en-US'),
@@ -48,6 +50,7 @@ export function getPublicEnv(): PublicEnv {
     supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
     supabaseAnonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
     apiBaseUrl: process.env.NEXT_PUBLIC_API_BASE_URL,
+    appVersion: process.env.NEXT_PUBLIC_APP_VERSION,
     siteUrl: process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000',
     voiceMode: process.env.NEXT_PUBLIC_VOICE_MODE,
     sttLanguage: process.env.NEXT_PUBLIC_STT_LANGUAGE,

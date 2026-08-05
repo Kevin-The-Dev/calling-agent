@@ -328,6 +328,13 @@ export function useCall(): UseCallResult {
     setTranscript([]);
     setInterim('');
     setOutcome(null);
+    // Cleared here, not merely set once the call exists. The duration timer
+    // starts the moment the phase leaves `idle`, which is the line above —
+    // several seconds before `/api/calls` answers. Left at its initial 0 the
+    // timer measured from the epoch and displayed 29766038:58; left at the
+    // previous call's value it would quietly resume the last call's clock.
+    startedAtRef.current = 0;
+    setElapsed(0);
 
     let stream: MediaStream;
     try {
@@ -468,6 +475,9 @@ export function useCall(): UseCallResult {
     if (phase === 'idle' || phase === 'ended') return;
 
     const timer = setInterval(() => {
+      // Zero means the call has not connected yet — `start()` clears it and the
+      // backend's reply sets it. Counting from zero would be counting from 1970.
+      if (startedAtRef.current === 0) return;
       setElapsed(Math.floor((Date.now() - startedAtRef.current) / 1000));
     }, 1000);
 

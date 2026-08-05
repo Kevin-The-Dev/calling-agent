@@ -487,7 +487,8 @@ curl -i https://<backend>/api/health
 
 | What you get | What it means |
 | --- | --- |
-| Connection refused, no response | No successful production deployment. Check the newest build in the Vercel Deployments list, not the one you last opened. |
+| Connection refused immediately | No successful production deployment. Check the newest build in the Vercel Deployments list, not the one you last opened. |
+| **Connects, then nothing — times out with 0 bytes** | The function is running but never writes a response. Almost always the entry-point signature: Vercel's Node runtime calls `api/index.ts` as `(req, res)` and discards the return value, so a Web-style `(Request) => Response` handler leaves the socket open forever. Use `handle()` from `@hono/node-server/vercel`. |
 | `302` to `vercel.com/sso` | Deployment Protection is on for the backend project. Turn off Vercel Authentication. |
 | `200` with JSON | The backend is fine — the problem is on the frontend side. Continue below. |
 
