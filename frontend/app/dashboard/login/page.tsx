@@ -21,10 +21,26 @@ import { WordmarkLink } from '@/components/brand';
  * public login"). Accounts are created in Supabase and given a `profiles` row;
  * a user in `auth.users` without one can authenticate but still reads nothing.
  */
+/**
+ * Credentials pre-filled during local development only.
+ *
+ * `process.env.NODE_ENV` is replaced with a literal at build time, so on a
+ * production build these two lines compile to `''` and the values below are
+ * removed from the bundle entirely by dead-code elimination. That property is
+ * the whole point: this file is a client component, so anything that survives
+ * into the bundle is readable by every visitor — and this account reads every
+ * lead's name, phone, address and credit score, plus every call recording.
+ *
+ * Keep the guard. A convenience that saves typing on localhost is not worth
+ * publishing an admin password to the internet.
+ */
+const DEV_EMAIL = process.env.NODE_ENV === 'development' ? 'patelkevinkumar204@gmail.com' : '';
+const DEV_PASSWORD = process.env.NODE_ENV === 'development' ? '123456' : '';
+
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState(DEV_EMAIL);
+  const [password, setPassword] = useState(DEV_PASSWORD);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
