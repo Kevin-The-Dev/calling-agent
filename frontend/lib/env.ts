@@ -21,12 +21,23 @@ const publicEnvSchema = z.object({
   sttLanguage: z.string().default('en-US'),
   showTranscript: z.boolean().default(true),
   requireConsent: z.boolean().default(true),
+  /**
+   * Silence, in milliseconds, before an utterance is treated as finished.
+   * Lower feels faster but clips people who pause mid-sentence; see
+   * voice/speech.ts for what this actually controls.
+   */
+  endpointMs: z.number().int().min(200).max(3000).default(650),
 });
 
 export type PublicEnv = z.infer<typeof publicEnvSchema>;
 
 const asBool = (value: string | undefined, fallback: boolean): boolean =>
   value === undefined ? fallback : value === 'true' || value === '1';
+
+const asInt = (value: string | undefined, fallback: number): number => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : fallback;
+};
 
 let cached: PublicEnv | undefined;
 
@@ -42,6 +53,7 @@ export function getPublicEnv(): PublicEnv {
     sttLanguage: process.env.NEXT_PUBLIC_STT_LANGUAGE,
     showTranscript: asBool(process.env.NEXT_PUBLIC_SHOW_TRANSCRIPT, true),
     requireConsent: asBool(process.env.NEXT_PUBLIC_REQUIRE_CONSENT, true),
+    endpointMs: asInt(process.env.NEXT_PUBLIC_ENDPOINT_MS, 650),
   });
 
   if (!result.success) {

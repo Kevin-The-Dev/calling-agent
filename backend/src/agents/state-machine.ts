@@ -223,6 +223,12 @@ function autoAdvance(state: CallState): Stage | null {
     case 'appointment':
       return (lead.decision_makers ?? []).length > 0 ? 'confirmation' : null;
 
+    case 'confirmation':
+      // The recap reads back a number the confirmation text will go to, so the
+      // number has to exist first. Relying on the model to propose `closing`
+      // meant it sometimes recapped before it had ever asked for one.
+      return lead.phone ? 'closing' : null;
+
     default:
       return null;
   }

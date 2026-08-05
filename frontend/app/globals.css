@@ -1,41 +1,278 @@
 @import 'tailwindcss';
 
+/* ─────────────────────────────────────────────────────────────────────────────
+ * Design tokens — "Daylight"
+ *
+ * A warm, paper-toned light theme. The product is a conversation about someone's
+ * electricity bill, held in their kitchen at 10am, and the surface should feel
+ * like that rather than like a developer tool: warm neutrals instead of blue-grey,
+ * a burnt-marigold accent taken from late sun rather than a generic amber, and a
+ * deep pine reserved for the one thing that actually matters — a booked
+ * appointment.
+ *
+ * Every colour below is a token. Nothing in a component hardcodes a hex.
+ * ───────────────────────────────────────────────────────────────────────────── */
 @theme {
-  --color-ink: #0d1117;
-  --color-ink-soft: #6b7280;
+  /* Surfaces — warm, never pure white except where a card must lift off paper */
+  --color-paper: #fbf9f5;
+  --color-paper-deep: #f4f0e7;
   --color-surface: #ffffff;
-  --color-surface-alt: #f6f7f9;
-  --color-line: #e5e7eb;
-  --color-accent: #f59e0b;
-  --color-ok: #10b981;
-  --color-warn: #f97316;
-  --color-bad: #ef4444;
+  --color-sunk: #f7f4ed;
+
+  /* Ink — warm near-black, so text sits *on* the paper rather than over it */
+  --color-ink: #16130e;
+  --color-ink-2: #4a4437;
+  --color-ink-3: #8a8172;
+  --color-ink-4: #b5ad9d;
+
+  /* Structure */
+  --color-line: #e7e1d5;
+  --color-line-strong: #d5cdbc;
+
+  /* Accent — late-afternoon sun, not a stock amber */
+  --color-solar: #e4650a;
+  --color-solar-deep: #b84c04;
+  --color-solar-wash: #fdefdf;
+  --color-solar-line: #f3d3ad;
+
+  /* Reserved for the outcome the whole product exists to produce */
+  --color-pine: #12463a;
+  --color-pine-wash: #e4efe9;
+
+  /* Signals */
+  --color-live: #1c8f52;
+  --color-live-wash: #e3f2e8;
+  --color-think: #c98a06;
+  --color-think-wash: #fdf1d8;
+  --color-alert: #b8362a;
+  --color-alert-wash: #fbe9e6;
+
+  /* Typography */
+  --font-display: var(--font-fraunces), 'Iowan Old Style', Georgia, serif;
+  --font-sans: var(--font-instrument), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, monospace;
+
+  /* Elevation — warm-tinted, because a grey shadow on warm paper reads as dirt */
+  --shadow-sm: 0 1px 2px rgb(60 46 24 / 0.05);
+  --shadow-card: 0 1px 2px rgb(60 46 24 / 0.04), 0 8px 24px -12px rgb(60 46 24 / 0.16);
+  --shadow-lift: 0 2px 4px rgb(60 46 24 / 0.05), 0 20px 48px -20px rgb(60 46 24 / 0.28);
+  --shadow-console:
+    0 2px 6px rgb(60 46 24 / 0.05), 0 32px 64px -28px rgb(60 46 24 / 0.34),
+    0 0 0 1px rgb(60 46 24 / 0.05);
+
+  --radius-console: 1.75rem;
+
+  /* Motion */
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out-soft: cubic-bezier(0.65, 0, 0.35, 1);
+
+  --animate-rise: rise 0.7s var(--ease-out-soft) both;
+  --animate-fade: fade 0.5s var(--ease-out-soft) both;
+  --animate-halo: halo 2.4s var(--ease-in-out-soft) infinite;
+  --animate-blink: blink 1.6s var(--ease-in-out-soft) infinite;
+  --animate-drift: drift 22s ease-in-out infinite;
 }
 
-:root {
-  color-scheme: light dark;
-}
-
-html,
-body {
-  height: 100%;
-}
-
-body {
-  background: var(--color-surface);
-  color: var(--color-ink);
-  font-family:
-    ui-sans-serif,
-    system-ui,
-    -apple-system,
-    'Segoe UI',
-    sans-serif;
-  -webkit-font-smoothing: antialiased;
-}
-
-@media (prefers-color-scheme: dark) {
-  body {
-    background: #0d1117;
-    color: #e6edf3;
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
   }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* The ring that pulses out of a live status dot. */
+@keyframes halo {
+  0% {
+    opacity: 0.55;
+    transform: scale(1);
+  }
+  70%,
+  100% {
+    opacity: 0;
+    transform: scale(2.6);
+  }
+}
+
+@keyframes blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* Slow drift for the atmospheric gradient behind the hero. */
+@keyframes drift {
+  0% {
+    transform: translate3d(-2%, 0, 0) scale(1.05);
+  }
+  50% {
+    transform: translate3d(2%, -1.5%, 0) scale(1.12);
+  }
+  100% {
+    transform: translate3d(-2%, 0, 0) scale(1.05);
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * Base
+ * ───────────────────────────────────────────────────────────────────────────── */
+
+/*
+ * Light only, deliberately.
+ * `color-scheme: light` also stops the browser from auto-darkening form
+ * controls and scrollbars for users whose OS sits in dark mode — which is what
+ * otherwise leaves a light page with black inputs.
+ */
+:root {
+  color-scheme: light;
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  /* Nothing here is load-bearing; motion is decoration and can all stop. */
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+body {
+  min-height: 100%;
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Fraunces is a variable font with optical-size and "wonk" axes. Turning them
+   up at display sizes is the whole reason to use it — flat defaults would make
+   it just another serif. */
+.font-display {
+  font-variation-settings:
+    'SOFT' 22,
+    'WONK' 1,
+    'opsz' 108;
+  letter-spacing: -0.021em;
+}
+
+::selection {
+  background: var(--color-solar-wash);
+  color: var(--color-solar-deep);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-solar);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * Texture
+ *
+ * Flat colour reads as unfinished at this scale. These are the layers that make
+ * the page feel like a surface: a fine grain over everything, and a warm light
+ * source behind the hero.
+ * ───────────────────────────────────────────────────────────────────────────── */
+
+/* Fractal-noise grain, inlined as a data URI so it costs no request. */
+.texture-grain::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.4;
+  mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.28'/%3E%3C/svg%3E");
+}
+
+/* Fine dot grid — a drafting-table cue under the console. */
+.texture-grid {
+  background-image: radial-gradient(circle at 1px 1px, var(--color-line-strong) 1px, transparent 0);
+  background-size: 22px 22px;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * Components
+ * ───────────────────────────────────────────────────────────────────────────── */
+
+/* The transcript scrolls; a hairline scrollbar keeps it from dominating. */
+.scroll-slim {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line-strong) transparent;
+}
+.scroll-slim::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.scroll-slim::-webkit-scrollbar-thumb {
+  background: var(--color-line-strong);
+  border-radius: 999px;
+}
+.scroll-slim::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Fades the top edge of the transcript so older turns dissolve rather than
+   being sliced off mid-letter by the container. */
+.mask-fade-top {
+  mask-image: linear-gradient(to bottom, transparent 0, #000 28px);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 28px);
+}
+
+/* Staggered page-load reveal. One orchestrated entrance beats a dozen
+   scattered micro-interactions. */
+.stagger > * {
+  animation: rise 0.7s var(--ease-out-soft) both;
+}
+.stagger > *:nth-child(1) {
+  animation-delay: 0.02s;
+}
+.stagger > *:nth-child(2) {
+  animation-delay: 0.09s;
+}
+.stagger > *:nth-child(3) {
+  animation-delay: 0.16s;
+}
+.stagger > *:nth-child(4) {
+  animation-delay: 0.23s;
+}
+.stagger > *:nth-child(5) {
+  animation-delay: 0.3s;
+}
+.stagger > *:nth-child(6) {
+  animation-delay: 0.37s;
+}
+
+/* Numbers that change in place — timers, scores, bills — must not reflow. */
+.tnum {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
 }

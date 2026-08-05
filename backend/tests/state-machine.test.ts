@@ -134,6 +134,33 @@ describe('decision-maker gate', () => {
     });
     expect(result.stage).toBe('confirmation');
   });
+
+  // A one-person household has one decision maker, not none. Recording the
+  // prospect themselves is what stops "just me" from stalling the booking on a
+  // question they have already answered.
+  it('opens for a sole decision maker recorded as themselves', () => {
+    const lead = {
+      ...QUALIFIED_LEAD,
+      decision_makers: [{ name: 'Sam', relationship: 'self' }],
+    };
+    const result = nextStage(makeState({ stage: 'appointment', lead }), opts);
+    expect(result.stage).toBe('confirmation');
+  });
+});
+
+describe('confirmation → closing', () => {
+  const BOOKED = { ...QUALIFIED_LEAD, decision_makers: [{ name: 'Alex' }] };
+
+  it('holds at confirmation until a contact number has been captured', () => {
+    const result = nextStage(makeState({ stage: 'confirmation', lead: BOOKED }), opts);
+    expect(result.stage).toBe('confirmation');
+  });
+
+  it('advances on its own once the number is known', () => {
+    const lead = { ...BOOKED, phone: '5105551212' };
+    const result = nextStage(makeState({ stage: 'confirmation', lead }), opts);
+    expect(result.stage).toBe('closing');
+  });
 });
 
 describe('objection interrupt', () => {

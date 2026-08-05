@@ -68,6 +68,22 @@ HARD RULES — these override everything else
    Keep the hedges — "potentially", "in some cases", "I'm not promising that".
 8. Savings are always described as "20 to 50% cheaper". Never a higher figure.
 9. If they ask to be removed from the list, stop immediately and warmly. No rebuttal.
+10. NEVER speak a placeholder. Not "[Name]", not "[Homeowner's Name]", not "your address",
+    not any bracketed field. Everything you say is spoken aloud the instant you write it,
+    so a placeholder is heard exactly as written. If you do not know a detail, phrase the
+    sentence so it is not needed — ask for it instead of standing in for it.
+11. You started this call knowing NOTHING about this person — no name, no address, no phone
+    number, no email. Every one of those has to be asked for out loud, one at a time, in the
+    ordinary run of the conversation. Never assume you already have a detail, and never act
+    as though you are reading it off a list.
+
+COLLECTING DETAILS
+- Ask for a detail the way a person would, attached to a reason: their name so you know who
+  you are speaking to, their address so the engineer goes to the right home, their number so
+  the confirmation can be texted over.
+- One detail per turn, and never in a block. "Can I get your name, address and phone number?"
+  is a form, not a conversation.
+- Read a number or an email back to them once to check you heard it right, and only that.
 
 TONE
 - Calm, warm, unhurried, genuinely curious. Never pushy, never salesy, never robotic.
@@ -78,7 +94,11 @@ TONE
 /** What to accomplish at each stage. */
 const STAGE_INSTRUCTIONS: Record<Stage, string> = {
   opening: `STAGE: Opening.
-Confirm you are speaking to the homeowner. Greet them by name with genuine curiosity, as if confirming you have the right person — slightly unsure, not salesy. Mention you are working right in the corner of their neighborhood for the next couple of weeks. Then ask if you are speaking with the owner of their address.
+Open with genuine curiosity, as if checking you have the right person — slightly unsure, not salesy. Mention you are working right in the corner of their neighborhood for the next couple of weeks.
+Then, ONE per turn, in this order, skipping anything already known:
+1. Their name — "who am I speaking with?" / "sorry, I didn't catch your name".
+2. Whether they are the homeowner. If they are not, ask if the homeowner is available.
+Use their name ONLY if you were given one under WHAT YOU KNOW SO FAR. If you were not, open without a name — "Hi there, sorry to bother you" — and never guess, invent, or stand in a placeholder for it.
 Do NOT mention solar, savings, or any program yet.`,
 
   rapport: `STAGE: Reason for the call. This beat has REQUIRED content — do not substitute a generic solar introduction.
@@ -93,12 +113,14 @@ Do NOT say "would you be interested in solar", "can I tell you about solar", or 
 
   qualification: `STAGE: Qualification.
 Work through these one at a time, in order, only asking what you do not already know:
-1. Assume they pay more than $150/month on electricity — ask if that is right.
-2. What is their average monthly bill? React with genuine surprise if it is high.
-3. Is it a single-family home, and do they own the roof?
-4. The program is government-sponsored and requires a minimum credit score of 650 — do they know if theirs is above that? If unsure, reassure them the engineer can verify during the consultation.
-5. Any large trees or structures blocking the roof from direct sunlight?
-6. Who is their current electricity provider?
+1. Their name, if you still do not have it.
+2. Assume they pay more than $150/month on electricity — ask if that is right.
+3. What is their average monthly bill? React with genuine surprise if it is high.
+4. Is it a single-family home, and do they own the roof?
+5. The property address — you need it so the right home is looked at and so the records line up. Ask for the street address; you do not need an apartment number or a zip code.
+6. The program is government-sponsored and requires a minimum credit score of 650 — do they know if theirs is above that? If unsure, reassure them the engineer can verify during the consultation.
+7. Any large trees or structures blocking the roof from direct sunlight?
+8. Who is their current electricity provider?
 ONE question per turn. Do not batch them. Do not re-ask anything you already know.`,
 
   need_discovery: `STAGE: Need discovery.
@@ -114,15 +136,16 @@ Frame it as a savings consultation, not a sale. They do not have to buy anything
 Follow the guidance provided for this specific objection. Then return naturally to what you were doing — do not announce that you are moving on.`,
 
   appointment: `STAGE: Booking.
-FIRST, if you do not already know: ask whether there are any other decision makers in the household — a spouse or partner who would need to be part of this conversation. Never propose a time before you know this.
+FIRST, if you do not already know: ask whether there are any other decision makers in the household — a spouse or partner who would need to be part of this conversation. If there are, get their first name. If they say it is just them, accept that and move on — do not ask again. Never propose a time before you know this.
 Then frame the visit precisely: an engineer comes out, 10 to 15 minutes to evaluate the home and another 10 to 15 to walk through what they qualify for and how much they can save. Use those two numbers — do not compress it into "a 20-minute consultation". They are not in a rush and will answer any questions.
 Then narrow before you propose: ask whether morning or afternoon works better. Once they choose, offer ONE specific time in that window. Never ask an open "when are you free?".`,
 
   confirmation: `STAGE: Locking the appointment.
-Three confirmations, one per turn, in this order:
+One per turn, in this order, skipping anything already settled:
 1. Is there anything that would keep them from being available at that time — an appointment, a commitment, anything at all? Resolve conflicts now.
-2. Confirm the other decision makers will be there at that time. If they cannot, ask what time they usually get home and find a slot that works for both.
-3. Confirm the best number to text the confirmation to. Refer only to the last four digits.`,
+2. Confirm the other decision makers will be there at that time. If they cannot, ask what time they usually get home and find a slot that works for both. Skip this entirely if they are the only decision maker.
+3. The best number to text the confirmation to. You do NOT have their number — ask for it outright, then read it back once to check you have it right. If you already have it, refer only to the last four digits and just confirm it.
+4. An email address to send the appointment details to. If they would rather not give one, that is fine — say so warmly and move on. Never push for it twice.`,
 
   closing: `STAGE: Closing recap.
 Go over all five points so you are on the same page — you may group them naturally, this is the one place you are not limited to one item per turn:
@@ -172,17 +195,106 @@ function leadBlock(lead: Lead): string {
   return `WHAT YOU KNOW SO FAR (never re-ask these)\n${known.map((k) => `- ${k}`).join('\n')}`;
 }
 
+/**
+ * What the agent still has to get, for the stage it is working in.
+ *
+ * The stage instructions describe the whole beat; this narrows it to the single
+ * next thing. Without it the model reliably talked past the details it had never
+ * been told — most visibly the name, address and phone number, none of which the
+ * agent starts a web call knowing, and none of which it ever asked for. The
+ * completeness gate then blocked qualification forever because the fields it
+ * required were fields nothing in the conversation would ever fill.
+ */
+const OUTSTANDING_BY_STAGE: Partial<Record<Stage, { has: (lead: Lead) => boolean; ask: string }[]>> =
+  {
+    opening: [
+      { has: (l) => Boolean(l.name), ask: 'their name' },
+      { has: (l) => l.homeowner_confirmed != null, ask: 'whether they are the homeowner' },
+    ],
+    qualification: [
+      { has: (l) => Boolean(l.name), ask: 'their name' },
+      { has: (l) => l.monthly_bill != null, ask: 'their average monthly electricity bill' },
+      {
+        has: (l) => l.home_type != null && l.home_type !== 'unknown',
+        ask: 'whether it is a single-family home',
+      },
+      { has: (l) => l.owns_roof != null, ask: 'whether they own the roof' },
+      { has: (l) => Boolean(l.address), ask: 'the property address' },
+      { has: (l) => l.credit_score_band != null, ask: 'whether their credit is above 650' },
+      { has: (l) => l.shading != null && l.shading !== 'unknown', ask: 'shading over the roof' },
+      { has: (l) => Boolean(l.utility_provider), ask: 'their current electricity provider' },
+    ],
+    appointment: [
+      {
+        has: (l) => (l.decision_makers ?? []).length > 0,
+        ask: 'who else in the household is a decision maker',
+      },
+    ],
+    confirmation: [
+      { has: (l) => Boolean(l.phone), ask: 'the best phone number to text the confirmation to' },
+      { has: (l) => Boolean(l.email), ask: 'an email address for the appointment details' },
+    ],
+  };
+
+function outstandingBlock(stage: Stage, lead: Lead): string | null {
+  const items = OUTSTANDING_BY_STAGE[stage];
+  if (!items) return null;
+
+  const missing = items.filter((item) => !item.has(lead)).map((item) => item.ask);
+  if (missing.length === 0) return null;
+
+  return `STILL TO GET, in this order — ask the FIRST one only, this turn:\n${missing
+    .map((m, i) => `${i + 1}. ${m}`)
+    .join('\n')}\nYou do not have these. Do not speak as though you do, and do not move past them.`;
+}
+
 export interface BuildPromptOptions {
   state: CallState;
   identity: AgentIdentity;
   objection: ObjectionMatch | null;
   /** Set when the agent must decline to answer and redirect. */
   forceFallback?: boolean;
+  /** Injectable so the calendar block is testable. */
+  now?: Date;
+}
+
+/**
+ * Today's date, in the lead's timezone.
+ *
+ * The booking stage asks the agent to offer a specific day and time, and a model
+ * has no idea what day it is — so it offered whatever weekday came to mind,
+ * anchored to a training cutoff. "I have this Thursday the 14th open" is wrong
+ * on both counts and unrecoverable once spoken. The horizon comes from
+ * appointment-booking.md §3: earliest next calendar day, fourteen days out.
+ */
+function calendarBlock(now: Date, timezone: string | null | undefined): string {
+  const zone = timezone ?? 'America/Los_Angeles';
+  const format = (date: Date) =>
+    new Intl.DateTimeFormat('en-US', {
+      weekday: 'long',
+      month: 'long',
+      day: 'numeric',
+      timeZone: zone,
+    }).format(date);
+
+  const time = new Intl.DateTimeFormat('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone: zone,
+  }).format(now);
+
+  const day = (offset: number) => format(new Date(now.getTime() + offset * 86_400_000));
+
+  return `RIGHT NOW
+- Today is ${format(now)}, and their local time is about ${time}.
+- The earliest you may offer is tomorrow, ${day(1)}. The latest is ${day(14)}.
+- Morning means 9am to 12pm; afternoon means 1pm to 6pm.
+- Name the day and the date together — "this Thursday, the ${new Intl.DateTimeFormat('en-US', { day: 'numeric', timeZone: zone }).format(new Date(now.getTime() + 86_400_000))}" style. Never say "next week" without a day, and never offer a day that has already passed.`;
 }
 
 /** Assembles the system prompt for one conversational turn. */
 export function buildSystemPrompt(options: BuildPromptOptions): string {
-  const { state, identity, objection, forceFallback } = options;
+  const { state, identity, objection, forceFallback, now = new Date() } = options;
   const sections: string[] = [personaBlock(identity)];
 
   // While handling an objection the agent still needs the goal of the stage it
@@ -220,7 +332,18 @@ export function buildSystemPrompt(options: BuildPromptOptions): string {
     );
   }
 
+  // Only where a date can actually be spoken — it is dead weight on every
+  // earlier turn, and the prompt budget is 2,000 tokens.
+  if (workingStage === 'appointment' || workingStage === 'confirmation' || workingStage === 'closing') {
+    sections.push(calendarBlock(now, state.lead.timezone));
+  }
+
   sections.push(leadBlock(state.lead));
+
+  // Anchored to the stage the agent is actually working, so an objection
+  // interrupt does not lose the detail it was in the middle of asking for.
+  const outstanding = outstandingBlock(workingStage, state.lead);
+  if (outstanding) sections.push(outstanding);
 
   return sections.join('\n\n');
 }
@@ -232,11 +355,24 @@ export function buildExtractorPrompt(state: CallState): string {
 Given the last exchange, record ONLY what the prospect actually stated or clearly implied in THIS exchange. Do not guess. Do not carry over or repeat values already known. Do not infer a value from silence.
 
 Rules:
+- name: the prospect's own name, however casually given — "it's Dave", "Dave speaking",
+  "this is Dave Miller". First name alone is fine. Never a name they mentioned about
+  somebody else.
+- phone: digits spoken in any form — "five one zero, five five five, one two one two",
+  "510-555-1212". Normalize to digits only. Only their own contact number.
+- email: an address they spelled or said aloud. "at" means @, "dot" means "."; write it
+  as a normal address, lowercased.
+- address: the property address as they said it. Partial is fine — a street address with
+  no zip still counts.
 - monthly_bill: a number in dollars, only if they gave an amount.
 - homeowner_confirmed: true only if they confirmed they own the property.
 - home_type: single_family, condo, townhome, mobile, other, or unknown.
 - credit_score_band: above_650, below_650, unsure, or declined.
-- decision_makers: only people they named as needing to be involved.
+- decision_makers: people who would need to be part of the decision. If they say the
+  decision is theirs alone — "just me", "no, it's only me", "I'm the only one" — record a
+  single entry with their own name (or "Homeowner" if you do not have it) and relationship
+  "self". A household with one decision maker still HAS one, and leaving this empty stalls
+  the call on a question they have already answered.
 - buying_intent: high if they engage with timing/next steps; medium if they answer
   willingly or raise real concerns; low if they resist, deflect, or are hostile.
 - requests_do_not_contact: true ONLY on an explicit request to stop contacting them.

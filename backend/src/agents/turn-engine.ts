@@ -47,10 +47,13 @@ const EXTRACTION_TOOL_SCHEMA = {
       type: 'object',
       description: 'Only fields learned in THIS exchange. Omit anything not stated.',
       properties: {
-        name: { type: 'string' },
-        phone: { type: 'string' },
-        email: { type: 'string' },
-        address: { type: 'string' },
+        name: { type: 'string', description: "The prospect's own name, first name alone is fine." },
+        phone: {
+          type: 'string',
+          description: 'Their contact number, digits only, however they spoke it.',
+        },
+        email: { type: 'string', description: 'Their email address, lowercased.' },
+        address: { type: 'string', description: 'The property address, partial is fine.' },
         homeowner_confirmed: { type: 'boolean' },
         home_type: {
           type: 'string',
@@ -70,6 +73,10 @@ const EXTRACTION_TOOL_SCHEMA = {
         has_tenant: { type: 'boolean' },
         decision_makers: {
           type: 'array',
+          description:
+            'Everyone who must be part of the decision. If the prospect says it is just them, ' +
+            'record one entry for the prospect with relationship "self" — never leave it empty ' +
+            'once they have answered.',
           items: {
             type: 'object',
             properties: {

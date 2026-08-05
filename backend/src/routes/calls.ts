@@ -19,16 +19,23 @@ import { signCallToken, verifyCallToken } from '../lib/call-token.js';
 import { identityFromEnv } from '../knowledge/prompt-builder.js';
 import { runTurn } from '../agents/turn-engine.js';
 import { resolveFinalOutcome } from '../agents/state-machine.js';
-import { createLlmProvider } from '../services/llm/index.js';
+import type { LlmProvider } from '../services/llm/index.js';
 import {
   endCall,
-  loadCallState,
+  initialCallState,
+  loadCallContext,
+  loadHistory,
   persistTurn,
   recordEvent,
   startCall,
 } from '../services/calls.js';
+import {
+  dropCallContext,
+  readCallContext,
+  writeCallContext,
+} from '../services/call-cache.js';
+import { normalizeMimeType, storeRecording } from '../services/recordings.js';
 import type { TranscriptTurn } from '../types/domain.js';
-import { getServiceClient } from '../services/supabase.js';
 
 const startSchema = z.object({
   consent: z.boolean(),
@@ -36,6 +43,15 @@ const startSchema = z.object({
 
 const turnSchema = z.object({
   utterance: z.string().trim().min(1, 'utterance must not be empty').max(2000),
+  /**
+   * Where this utterance sits in the recording, in milliseconds from the moment
+   * capture began. The agent speaks through browser synthesis and is therefore
+   * absent from the audio file (implementation.md R13), so the prospect's own
+   * windows are the only fixed points the dashboard can sync a transcript to.
+   * Optional: a client that does not send them still records a valid turn.
+   */
+  audioStartMs: z.number().int().min(0).optional(),
+  audioEndMs: z.number().int().min(0).optional(),
 });
 
 /**
@@ -44,6 +60,15 @@ const turnSchema = z.object({
  */
 const CALL_START_SENTINEL = '__call_started__';
 const CALL_START_CUE = '(The call has just connected. Open the conversation.)';
+
+/**
+ * Upload ceiling for a recording.
+ *
+ * Opus at browser defaults runs ~0.5MB/minute, so 25MB covers a conversation
+ * far longer than any real appointment-setting call while keeping a malformed
+ * or hostile upload from being buffered into memory.
+ */
+const MAX_RECORDING_BYTES = 25 * 1_000_000;
 
 /** Simple in-process rate limiter. Per-instance, which is enough to blunt abuse. */
 const turnHits = new Map<string, number[]>();
@@ -65,10 +90,9 @@ function rateLimited(callId: string, perMinute: number): boolean {
   return hits.length > perMinute;
 }
 
-export function callRoutes(env: Env) {
+export function callRoutes(env: Env, provider: LlmProvider) {
   const app = new Hono();
   const logger = createLogger(env.LOG_LEVEL, { component: 'calls' });
-  const provider = createLlmProvider(env);
   const identity = identityFromEnv(env);
 
   /** Start a call. */
@@ -86,7 +110,22 @@ export function callRoutes(env: Env) {
       expiresAt: Date.now() + env.CALL_TOKEN_TTL_SECONDS * 1000,
     });
 
-    await recordEvent(env, callId, 'consent', { given: true });
+    // Seed the cache with the state we just created. The opening turn follows
+    // within milliseconds and is the one turn with nothing to mask its latency,
+    // so it should not pay for reading back a row we wrote ourselves.
+    writeCallContext(callId, {
+      state: initialCallState(callId, leadId, env.DEFAULT_TIMEZONE),
+      history: [],
+    });
+
+    // Analytics, not a precondition for talking. Awaiting it would put a write
+    // round trip between "Start call" and the agent's first word.
+    void recordEvent(env, callId, 'consent', { given: true }).catch((err: unknown) => {
+      logger.warn('consent_event_failed', {
+        callId,
+        message: err instanceof Error ? err.message : String(err),
+      });
+    });
 
     return c.json({
       callId,
@@ -116,10 +155,12 @@ export function callRoutes(env: Env) {
     const parsed = turnSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) throw badRequest(parsed.error.issues[0]?.message ?? 'Invalid body');
 
-    const state = await loadCallState(env, callId);
-    if (!state) throw notFound('Call not found');
+    // Cache hit on every turn after the first, on the instance that served the
+    // previous one. A miss costs one round trip, not three.
+    const context = readCallContext(callId) ?? (await loadCallContext(env, callId));
+    if (!context) throw notFound('Call not found');
 
-    const history = await loadHistory(env, callId);
+    const { state, history } = context;
     const previousStage = state.stage;
 
     const isCallStart = parsed.data.utterance === CALL_START_SENTINEL;
@@ -140,20 +181,59 @@ export function callRoutes(env: Env) {
 
         const turn = await result;
 
-        await persistTurn(env, {
+        // The opening turn has no prospect speech — record it as a system
+        // marker so turn indices stay contiguous and the transcript reads
+        // correctly in the dashboard.
+        const prospectUtterance = isCallStart ? '[call connected]' : utterance;
+
+        // Carry the conversation forward in memory so the next turn needs no
+        // reads. Written before persistence because it does not depend on it.
+        writeCallContext(callId, {
           state: turn.state,
-          // The opening turn has no prospect speech — record it as a system
-          // marker so turn indices stay contiguous and the transcript reads
-          // correctly in the dashboard.
-          prospectUtterance: isCallStart ? '[call connected]' : utterance,
-          agentReply: turn.reply,
-          previousStage,
-          latencyMs: turn.latencyToFirstTokenMs,
-          tokensIn: turn.tokensIn,
-          tokensOut: turn.tokensOut,
-          objectionId: turn.objectionId,
-          objectionQuote: turn.objectionId ? utterance : null,
+          history: [
+            ...history,
+            { speaker: 'prospect', content: prospectUtterance, stage: previousStage },
+            { speaker: 'agent', content: turn.reply, stage: turn.state.stage },
+          ],
         });
+
+        // `done` goes out before the writes. The client uses it to hand the
+        // microphone back, and three sequential inserts (~500ms) between the
+        // agent's last word and the prospect being able to answer is exactly
+        // the pause that makes a call feel like software.
+        await stream.writeSSE({
+          event: 'done',
+          data: JSON.stringify({
+            stage: turn.state.stage,
+            finished: turn.state.stage === 'ended' || turn.state.stage === 'disqualified',
+            outcome: turn.state.outcome,
+            latencyMs: turn.latencyToFirstTokenMs,
+          }),
+        });
+
+        // Still awaited inside the stream callback: on a serverless runtime the
+        // function may be frozen the moment the handler returns, and a dropped
+        // transcript is not an acceptable trade for latency already banked.
+        try {
+          await persistTurn(env, {
+            state: turn.state,
+            prospectUtterance,
+            agentReply: turn.reply,
+            previousStage,
+            latencyMs: turn.latencyToFirstTokenMs,
+            tokensIn: turn.tokensIn,
+            tokensOut: turn.tokensOut,
+            objectionId: turn.objectionId,
+            objectionQuote: turn.objectionId ? utterance : null,
+            audioStartMs: parsed.data.audioStartMs ?? null,
+            audioEndMs: parsed.data.audioEndMs ?? null,
+          });
+        } catch (err) {
+          // The cached state claims a turn that was never written. Drop it so
+          // the next turn rebuilds from what the database actually holds.
+          dropCallContext(callId);
+          throw err;
+        }
 
         if (turn.usedFallback) {
           await recordEvent(env, callId, 'fallback_used', {
@@ -166,16 +246,6 @@ export function callRoutes(env: Env) {
             to: turn.state.stage,
           });
         }
-
-        await stream.writeSSE({
-          event: 'done',
-          data: JSON.stringify({
-            stage: turn.state.stage,
-            finished: turn.state.stage === 'ended' || turn.state.stage === 'disqualified',
-            outcome: turn.state.outcome,
-            latencyMs: turn.latencyToFirstTokenMs,
-          }),
-        });
       } catch (err) {
         const appError = toAppError(err);
         logger.error('turn_failed', { callId, code: appError.code, detail: appError.detail });
@@ -187,6 +257,55 @@ export function callRoutes(env: Env) {
     });
   });
 
+  /**
+   * Upload the call recording.
+   *
+   * Sent after `/end`, as raw audio bytes rather than multipart — there is
+   * exactly one file and no fields, so a form envelope would only add parsing.
+   * The call token is the authorization: it is scoped to this one call and
+   * expires, so a leaked token cannot be used to write audio to another.
+   */
+  app.post('/calls/:id/recording', async (c) => {
+    const callId = c.req.param('id');
+    const token = c.req.header('X-Call-Token');
+    if (!token) throw badRequest('Missing X-Call-Token header');
+
+    const payload = await verifyCallToken(env.CALL_TOKEN_SECRET, token);
+    if (payload.callId !== callId) throw badRequest('Call token does not match this call');
+
+    const mimeType = normalizeMimeType(c.req.header('Content-Type'));
+    if (!mimeType) {
+      throw badRequest('Content-Type must be a supported audio type (webm, ogg, mp4, mpeg, wav)');
+    }
+
+    const audio = await c.req.arrayBuffer();
+    if (audio.byteLength === 0) throw badRequest('The recording is empty');
+    if (audio.byteLength > MAX_RECORDING_BYTES) {
+      throw badRequest(
+        `The recording exceeds the ${Math.round(MAX_RECORDING_BYTES / 1_000_000)}MB limit`,
+      );
+    }
+
+    const durationHeader = Number(c.req.header('X-Recording-Duration') ?? '');
+    const durationSeconds =
+      Number.isFinite(durationHeader) && durationHeader > 0 ? Math.round(durationHeader) : null;
+
+    const stored = await storeRecording(env, {
+      callId,
+      audio,
+      mimeType,
+      durationSeconds,
+    });
+
+    logger.info('recording_stored', {
+      callId,
+      sizeBytes: stored.sizeBytes,
+      durationSeconds,
+    });
+
+    return c.json({ ok: true, recordingId: stored.id, sizeBytes: stored.sizeBytes });
+  });
+
   /** Finalize the call. */
   app.post('/calls/:id/end', async (c) => {
     const callId = c.req.param('id');
@@ -196,14 +315,20 @@ export function callRoutes(env: Env) {
     const payload = await verifyCallToken(env.CALL_TOKEN_SECRET, token);
     if (payload.callId !== callId) throw badRequest('Call token does not match this call');
 
-    const state = await loadCallState(env, callId);
-    if (!state) throw notFound('Call not found');
+    const context = readCallContext(callId) ?? (await loadCallContext(env, callId));
+    if (!context) throw notFound('Call not found');
 
+    const { state } = context;
+    // Read through rather than trusting the cache: the summary is the CRM's
+    // record of the call, so it is worth one round trip to summarize what was
+    // actually written rather than what this instance believes it wrote.
     const history = await loadHistory(env, callId);
     const summary = await summarize(provider, history, state.lead.name ?? null);
 
     const outcome = resolveFinalOutcome(state);
     await endCall(env, { ...state, outcome }, summary);
+
+    dropCallContext(callId);
 
     return c.json({ ok: true, outcome, summary });
   });
@@ -211,27 +336,12 @@ export function callRoutes(env: Env) {
   return app;
 }
 
-async function loadHistory(env: Env, callId: string): Promise<TranscriptTurn[]> {
-  const { data } = await getServiceClient(env)
-    .from('transcript_turns')
-    .select('speaker, content, stage')
-    .eq('call_id', callId)
-    .order('turn_index', { ascending: true })
-    .limit(40);
-
-  return (data ?? []).map((row) => ({
-    speaker: row.speaker as TranscriptTurn['speaker'],
-    content: row.content as string,
-    stage: row.stage as TranscriptTurn['stage'],
-  }));
-}
-
 /**
  * Generates a short call summary for the CRM.
  * Never blocks call completion — a failed summary is not worth losing the call.
  */
 async function summarize(
-  provider: ReturnType<typeof createLlmProvider>,
+  provider: LlmProvider,
   history: TranscriptTurn[],
   name: string | null,
 ): Promise<string | null> {

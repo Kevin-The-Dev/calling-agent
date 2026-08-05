@@ -13,6 +13,8 @@ import { AppError, toAppError } from './lib/errors.js';
 import { createLogger } from './lib/logger.js';
 import { callRoutes } from './routes/calls.js';
 import { healthRoutes } from './routes/health.js';
+import { createLlmProvider } from './services/llm/index.js';
+import { warmUp } from './services/warmup.js';
 
 /**
  * Per-request context values.
@@ -28,6 +30,13 @@ export function createApp(env: Env = getEnv()) {
   const app = new Hono<AppEnv>();
   const logger = createLogger(env.LOG_LEVEL, { service: 'backend' });
 
+  // One provider for the whole process, so every turn reuses the same
+  // connection pool. The GLM endpoint is China-hosted and the TLS handshake
+  // measured ~0.8s from here — a cost worth paying once, at boot, rather than
+  // on the first thing a prospect hears.
+  const provider = createLlmProvider(env);
+  warmUp(env, provider, logger);
+
   app.use('*', secureHeaders());
 
   // claude.md §11 — an explicit origin allowlist, never a wildcard. The call
@@ -37,7 +46,12 @@ export function createApp(env: Env = getEnv()) {
     cors({
       origin: (origin) => (env.ALLOWED_ORIGINS.includes(origin) ? origin : null),
       allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-      allowHeaders: ['Content-Type', 'Authorization', 'X-Call-Token'],
+      allowHeaders: [
+        'Content-Type',
+        'Authorization',
+        'X-Call-Token',
+        'X-Recording-Duration',
+      ],
       credentials: true,
       maxAge: 86400,
     }),
@@ -62,7 +76,7 @@ export function createApp(env: Env = getEnv()) {
   });
 
   app.route('/api', healthRoutes(env));
-  app.route('/api', callRoutes(env));
+  app.route('/api', callRoutes(env, provider));
 
   app.notFound((c) => c.json({ error: { code: 'not_found', message: 'Not found' } }, 404));
 

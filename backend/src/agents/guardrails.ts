@@ -64,8 +64,19 @@ const LEAK_PATTERNS: { pattern: RegExp; rule: string }[] = [
   { pattern: /\b(?:the |a )?(?:sales )?script\b/i, rule: 'reveals_script' },
   { pattern: /\bPDF\b/i, rule: 'reveals_source' },
   { pattern: /\bstage\s*[:=]/i, rule: 'reveals_stage' },
+  // Only the internal identifiers. An earlier version also blocked the bare
+  // words "opening", "rapport" and "qualification", which are ordinary English
+  // and turn up in exactly the replies that matter most: "I have an opening
+  // Thursday at two" during booking, or "the qualification is quick". Every one
+  // of those was discarded and replaced with the "I'm not 100% sure" fallback,
+  // mid-booking, for no reason the prospect could make sense of.
   {
-    pattern: /\b(?:opening|rapport|qualification|need_discovery|value_pitch|objection_handling)\b/i,
+    pattern: /\b(?:need_discovery|value_pitch|objection_handling|objection[_ ]handling)\b/i,
+    rule: 'reveals_stage',
+  },
+  // The phrasing that actually leaks the machine, rather than the vocabulary.
+  {
+    pattern: /\b(?:current|next|this|the) (?:conversation )?stage\b|\bmove(?:d|s)? (?:me |us )?to the \w+ stage\b/i,
     rule: 'reveals_stage',
   },
   { pattern: /\bqualification[_ ]score\b/i, rule: 'reveals_score' },
@@ -97,6 +108,20 @@ function stripStructuredOutput(text: string): string {
     .replace(/\s{2,}/g, ' ')
     .trim();
 }
+
+/**
+ * An unfilled mail-merge placeholder.
+ *
+ * Caught in end-to-end testing: with no name known, the model opened the call
+ * with "Hi there, is this [Homeowner's Name]?" — spoken aloud, brackets and
+ * all. Every word generated here goes straight to the speaker, so a template
+ * token is not a cosmetic defect; it is the first thing the prospect hears and
+ * it identifies the caller as a machine reading a form.
+ *
+ * Matches a bracketed or braced span of template-ish words. Ordinary asides
+ * ("we can do that (if you like)") use parentheses and are untouched.
+ */
+const PLACEHOLDER_PATTERN = /[[{][^\]}\n]{2,40}[\]}]/;
 
 /**
  * Truncates to the first N questions, keeping everything before the second one.
@@ -166,6 +191,14 @@ export function applyGuardrails(
         severity: 'block',
       });
     }
+  }
+
+  if (PLACEHOLDER_PATTERN.test(text)) {
+    violations.push({
+      rule: 'unfilled_placeholder',
+      detail: 'Reply contained a template placeholder that would be spoken aloud.',
+      severity: 'block',
+    });
   }
 
   if (enforceOneQuestion && countQuestions(text) > 1) {

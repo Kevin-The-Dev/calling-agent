@@ -7,7 +7,7 @@
 import type { Env } from '../lib/env.js';
 import { databaseError } from '../lib/errors.js';
 import type { Database, Json } from '../types/database.js';
-import type { CallState, Lead, Stage } from '../types/domain.js';
+import type { CallState, Lead, Stage, TranscriptTurn } from '../types/domain.js';
 import { getServiceClient } from './supabase.js';
 
 type LeadUpdate = Database['public']['Tables']['leads']['Update'];
@@ -53,7 +53,14 @@ export async function startCall(env: Env, consentGiven: boolean): Promise<StartC
   return { callId: call.id as string, leadId: lead.id as string };
 }
 
-/** Rebuilds in-memory call state from the database. */
+/**
+ * Rebuilds in-memory call state from the database.
+ *
+ * The lead is embedded rather than fetched second. Two sequential round trips
+ * cost ~340ms against this project; the join costs ~170ms and returns the same
+ * data, and it sits directly on the path between the prospect finishing a
+ * sentence and the model being asked to answer.
+ */
 export async function loadCallState(env: Env, callId: string): Promise<CallState | null> {
   const db = getServiceClient(env);
 
@@ -61,18 +68,17 @@ export async function loadCallState(env: Env, callId: string): Promise<CallState
   // select string, and concatenation collapses it to an error type.
   const { data: call, error } = await db
     .from('calls')
-    .select('id, lead_id, stage, return_stage, turn_count, early_objection_count, late_objection_count, qualification_score, buying_intent, outcome, status')
+    .select('id, lead_id, stage, return_stage, turn_count, early_objection_count, late_objection_count, qualification_score, buying_intent, outcome, status, leads(*)')
     .eq('id', callId)
     .maybeSingle();
 
   if (error) throw databaseError('Could not read the call', { message: error.message });
   if (!call) return null;
 
-  const { data: lead } = await db
-    .from('leads')
-    .select('*')
-    .eq('id', call.lead_id as string)
-    .maybeSingle();
+  // A `lead_id` foreign key embeds as an object, but PostgREST returns an array
+  // when it cannot prove the relationship is to-one. Accept both.
+  const embedded = (call as Record<string, unknown>)['leads'];
+  const lead = (Array.isArray(embedded) ? embedded[0] : embedded) as Record<string, unknown> | null;
 
   return {
     callId: call.id as string,
@@ -91,6 +97,70 @@ export async function loadCallState(env: Env, callId: string): Promise<CallState
     disqualifiedReason: null,
     doNotContact: Boolean((lead as Record<string, unknown> | null)?.['do_not_contact']),
     outcome: (call.outcome as CallState['outcome']) ?? null,
+  };
+}
+
+/** Recent turns for a call, oldest first, capped to the prompt's window. */
+export async function loadHistory(env: Env, callId: string): Promise<TranscriptTurn[]> {
+  const { data } = await getServiceClient(env)
+    .from('transcript_turns')
+    .select('speaker, content, stage')
+    .eq('call_id', callId)
+    .order('turn_index', { ascending: true })
+    .limit(40);
+
+  return (data ?? []).map((row) => ({
+    speaker: row.speaker as TranscriptTurn['speaker'],
+    content: row.content as string,
+    stage: row.stage as TranscriptTurn['stage'],
+  }));
+}
+
+/**
+ * Everything a turn needs, in one wall-clock round trip.
+ *
+ * The history query does not depend on the state query, so running them in
+ * sequence only ever cost time. Prefer the cache — see call-cache.ts — and fall
+ * back to this on a cold instance.
+ */
+export async function loadCallContext(
+  env: Env,
+  callId: string,
+): Promise<{ state: CallState; history: TranscriptTurn[] } | null> {
+  const [state, history] = await Promise.all([
+    loadCallState(env, callId),
+    loadHistory(env, callId),
+  ]);
+
+  if (!state) return null;
+  return { state, history };
+}
+
+/**
+ * The state a call begins in.
+ *
+ * Built here rather than read back after the insert so the first turn — the
+ * agent's opening line, the one the prospect waits on with nothing else
+ * happening — needs no database read at all.
+ */
+export function initialCallState(callId: string, leadId: string, timezone: string): CallState {
+  return {
+    callId,
+    leadId,
+    stage: 'opening',
+    returnStage: null,
+    turnCount: 0,
+    earlyObjectionCount: 0,
+    lateObjectionCount: 0,
+    consecutiveFallbacks: 0,
+    lead: { timezone },
+    objections: [],
+    qualificationScore: 0,
+    qualificationBand: 'unqualified',
+    buyingIntent: 'low',
+    disqualifiedReason: null,
+    doNotContact: false,
+    outcome: null,
   };
 }
 
@@ -130,6 +200,13 @@ export interface PersistTurnInput {
   tokensOut: number;
   objectionId: string | null;
   objectionQuote: string | null;
+  /**
+   * Where the prospect's utterance sits in the recording, in milliseconds from
+   * the moment capture began. Optional — a turn without them is still valid,
+   * it simply cannot be highlighted while the recording plays.
+   */
+  audioStartMs?: number | null;
+  audioEndMs?: number | null;
 }
 
 /** Writes both transcript turns, the updated lead, and the call row. */
@@ -139,6 +216,12 @@ export async function persistTurn(env: Env, input: PersistTurnInput): Promise<vo
 
   const baseIndex = (state.turnCount - 1) * 2;
 
+  // The agent is inaudible in the recording — browser synthesis never reaches
+  // the microphone stream — so its row gets a start but no end. It begins the
+  // moment the prospect stops, and the dashboard runs it up to whenever the
+  // next prospect turn starts. See implementation.md R13.
+  const agentStartMs = input.audioEndMs ?? null;
+
   const { error: turnError } = await db.from('transcript_turns').insert([
     {
       call_id: state.callId,
@@ -146,6 +229,8 @@ export async function persistTurn(env: Env, input: PersistTurnInput): Promise<vo
       speaker: 'prospect',
       content: input.prospectUtterance,
       stage: previousStage,
+      audio_start_ms: input.audioStartMs ?? null,
+      audio_end_ms: input.audioEndMs ?? null,
     },
     {
       call_id: state.callId,
@@ -156,6 +241,7 @@ export async function persistTurn(env: Env, input: PersistTurnInput): Promise<vo
       latency_ms: input.latencyMs,
       llm_tokens_in: input.tokensIn,
       llm_tokens_out: input.tokensOut,
+      audio_start_ms: agentStartMs,
     },
   ]);
 

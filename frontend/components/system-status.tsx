@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { CircleAlert, CircleCheck, Loader2 } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 
 type State =
@@ -11,9 +12,9 @@ type State =
 /**
  * Live backend connectivity check.
  *
- * Exists so a broken `NEXT_PUBLIC_API_BASE_URL` or a stopped backend is
- * obvious immediately, rather than surfacing as a confusing failure mid-call
- * once the voice layer lands.
+ * Exists so a broken `NEXT_PUBLIC_API_BASE_URL` or a stopped backend is obvious
+ * before someone presses the call button, rather than surfacing as a
+ * conversation that never starts.
  */
 export function SystemStatus() {
   const [state, setState] = useState<State>({ kind: 'loading' });
@@ -34,7 +35,7 @@ export function SystemStatus() {
           message:
             err instanceof ApiError
               ? err.message
-              : 'Could not reach the backend. Is it running on port 8787?',
+              : 'Could not reach the call service. Is the backend running?',
         });
       });
 
@@ -43,33 +44,29 @@ export function SystemStatus() {
     };
   }, []);
 
+  const tone =
+    state.kind === 'ok'
+      ? { fg: 'var(--color-live)', bg: 'var(--color-live-wash)', line: 'var(--color-live)' }
+      : state.kind === 'error'
+        ? { fg: 'var(--color-alert)', bg: 'var(--color-alert-wash)', line: 'var(--color-alert)' }
+        : { fg: 'var(--color-ink-3)', bg: 'var(--color-sunk)', line: 'var(--color-line-strong)' };
+
   return (
-    <section
-      className="rounded-xl border border-[var(--color-line)] p-5"
+    <div
+      className="inline-flex items-center gap-2.5 rounded-full border px-3.5 py-2 text-[12.5px] font-medium"
+      style={{ color: tone.fg, background: tone.bg, borderColor: `${tone.line}40` }}
       aria-live="polite"
       aria-busy={state.kind === 'loading'}
     >
-      <h2 className="mb-3 text-sm font-semibold">System status</h2>
+      {state.kind === 'loading' && <Loader2 className="size-3.5 shrink-0 animate-spin" />}
+      {state.kind === 'ok' && <CircleCheck className="size-3.5 shrink-0" />}
+      {state.kind === 'error' && <CircleAlert className="size-3.5 shrink-0" />}
 
-      <div className="flex items-center gap-3">
-        <span
-          aria-hidden="true"
-          className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
-          style={{
-            background:
-              state.kind === 'ok'
-                ? 'var(--color-ok)'
-                : state.kind === 'error'
-                  ? 'var(--color-bad)'
-                  : 'var(--color-ink-soft)',
-          }}
-        />
-        <p className="text-sm">
-          {state.kind === 'loading' && 'Checking backend…'}
-          {state.kind === 'ok' && `Backend connected — ${state.service} v${state.version}`}
-          {state.kind === 'error' && state.message}
-        </p>
-      </div>
-    </section>
+      <span>
+        {state.kind === 'loading' && 'Checking the call service…'}
+        {state.kind === 'ok' && `Call service ready · v${state.version}`}
+        {state.kind === 'error' && state.message}
+      </span>
+    </div>
   );
 }
