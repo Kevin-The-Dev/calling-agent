@@ -13,7 +13,7 @@ import { createLlmProvider } from '../services/llm/index.js';
 import { checkSupabaseHealth } from '../services/supabase.js';
 
 /** The deployed service version, reported by `GET /api/health`. */
-export const SERVICE_VERSION = '0.2.0';
+export const SERVICE_VERSION = '0.2.1';
 
 export function healthRoutes(env: Env) {
   const app = new Hono();
