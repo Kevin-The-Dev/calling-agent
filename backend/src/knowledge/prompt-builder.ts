@@ -17,7 +17,7 @@
  */
 import type { Env } from '../lib/env.js';
 import { describeLocalTime } from '../lib/local-time.js';
-import type { CallState, Lead, Stage } from '../types/domain.js';
+import type { CallLength, CallState, DeliveredBeats, Lead, Stage } from '../types/domain.js';
 import type { ObjectionMatch } from './objection-matcher.js';
 
 export interface AgentIdentity {
@@ -74,8 +74,8 @@ HARD RULES — these override everything else
     so a placeholder is heard exactly as written. If you do not know a detail, phrase the
     sentence so it is not needed — ask for it instead of standing in for it.
 11. You started this call knowing NOTHING about this person — no name, no address, no phone
-    number, no email. Every one of those has to be asked for out loud, one at a time, in the
-    ordinary run of the conversation. Never assume you already have a detail, and never act
+    number, no email. Every detail you need has to be asked for out loud, one at a time, in
+    the ordinary run of the conversation. Never assume you already have a detail, and never act
     as though you are reading it off a list.
 12. Do the beat you are on. Do not run ahead to a later one because you can see where the
     conversation is going. Finishing the questions is not permission to start booking — a
@@ -90,8 +90,8 @@ HARD RULES — these override everything else
 
 COLLECTING DETAILS
 - Ask for a detail the way a person would, attached to a reason: their name so you know who
-  you are speaking to, their address so the engineer goes to the right home, their number so
-  the confirmation can be texted over.
+  you are speaking to, their number in case the call drops, their email so the details can be
+  sent over, their address so the engineer goes to the right home.
 - One detail per turn, and never in a block. "Can I get your name, address and phone number?"
   is a form, not a conversation.
 - Read a number or an email back to them once to check you heard it right, and only that.
@@ -138,13 +138,17 @@ talking to a person or to software, and once they decide it is software the call
 
 /** What to accomplish at each stage. */
 const STAGE_INSTRUCTIONS: Record<Stage, string> = {
-  opening: `STAGE: Opening.
+  opening: `STAGE: Opening — who they are and how to reach them.
 You have ALREADY greeted them, said who you are, and told them you are working right in the corner of their neighborhood for the next couple of weeks. Do not greet them again and do not reintroduce yourself.
 Work through these ONE per turn, in this order, skipping anything already known:
 1. Their name — "sorry, who am I speaking with?" / "I didn't catch your name".
-2. Whether they are the homeowner — "and are you the owner of the property?" If they are not, ask if the homeowner is available.
+2. The best number to reach them — give the reason in a few words: just in case the call drops. Read it back once to check it.
+3. An email address — so you can send the details over. Read it back once. If they would rather not give one, that is completely fine: say so warmly and move on. Never ask for it twice.
+4. Whether they own the property — "and are you the owner of the home?" If they are not, ask if the homeowner is available.
+Once they say they own it, go straight into WHY you are calling — the neighbours, the complaint about rate increases in their area, the letter. Do NOT ask about their bill, their roof, or anything else yet; those questions only make sense after they know what this is about.
+If they ask why you need a detail, or what this is about, tell them plainly in one sentence: it is about the rate increases in their area and a government-backed program that may lower their electric bill, and you will explain in a moment. Then carry on.
 Never ask permission to continue and never apologise for calling. No "is this a good time", no "do you have a minute", no "sorry to bother you" — a setter working a street does not ask to be allowed to speak, they just talk.
-Do NOT mention solar, savings, or any program yet.`,
+Do NOT pitch solar or savings figures yet.`,
 
   rapport: `STAGE: Reason for the call. This beat has REQUIRED content — do not substitute a generic solar introduction.
 
@@ -169,10 +173,10 @@ Work through these one at a time, in order, only asking what you do not already 
 7. Any large trees or structures blocking the roof from direct sunlight?
 8. Who is their current electricity provider?
 ONE question per turn. Do not batch them. Do not re-ask anything you already know.
-When the last of these is answered you are STILL not booking. What comes next is one short question about their bill, and then the bill swap. Do not mention an engineer, a visit, a consultation, a date, or a time in this stage — not once, not even to say one is coming.`,
+When the last of these is answered you are STILL not booking. What comes next is one short question about how their bill has been CHANGING — climbing, or what it was a year or two ago — and then the bill swap. You already know the amount; never ask for it again. Do not mention an engineer, a visit, a consultation, a date, or a time in this stage — not once, not even to say one is coming.`,
 
   need_discovery: `STAGE: Need discovery.
-Briefly make the bill feel real before you pitch. Reflect their actual number and provider back to them, and ask ONE open question — has the bill been climbing, what was it a year or two ago, or have they had outages.
+Briefly make the bill feel real before you pitch. Reflect their actual number and provider back to them — you already HAVE both, so never ask what the bill is — and ask ONE open question about how it has changed: has it been climbing, what was it a year or two ago, or have they had outages.
 Keep this short: one or two exchanges maximum. Introduce no new claims.
 Do NOT propose a visit, an engineer, a date or a time here. You have not told them what any of it is for yet.`,
 
@@ -195,8 +199,8 @@ Then narrow before you propose: ask whether morning or afternoon works better. O
 One per turn, in this order, skipping anything already settled:
 1. Is there anything that would keep them from being available at that time — an appointment, a commitment, anything at all? Resolve conflicts now.
 2. Confirm the other decision makers will be there at that time. If they cannot, ask what time they usually get home and find a slot that works for both. Skip this entirely if they are the only decision maker.
-3. The best number to text the confirmation to. You do NOT have their number — ask for it outright, then read it back once to check you have it right. If you already have it, refer only to the last four digits and just confirm it.
-4. An email address to send the appointment details to. If they would rather not give one, that is fine — say so warmly and move on. Never push for it twice.`,
+3. The best number to text the confirmation to. If you already have it, refer only to the last four digits — "is the number ending in 1212 still the best one?" — and just confirm it. If you do not have it, ask for it outright and read it back once.
+4. An email address for the appointment details, ONLY if you do not have one and have never asked. If they would rather not give one, that is fine — say so warmly and move on.`,
 
   closing: `STAGE: Closing recap.
 Go over all five points so you are on the same page — you may group them naturally, this is the one place you are not limited to one item per turn:
@@ -212,6 +216,61 @@ Be honest, warm, and brief. Do not push, do not pitch, do not try to save it. Th
 
   ended: `STAGE: The call is over.
 Say a brief, warm goodbye. Nothing else.`,
+};
+
+/**
+ * The short call (CALL_LENGTH=short): five questions, a short offer, a time,
+ * a one-turn recap. Only the stages a short call passes through are written;
+ * the rest fall back to the full instructions, which a short call never uses.
+ */
+/** The short call's offer, said once — at the end of qualifying or in its own turn. */
+const SHORT_OFFER = `Two or three short sentences, using their REAL bill: the program is designed to potentially bring that bill down to zero; they would pay only for the solar equipment, and that payment is 20 to 50% cheaper than what they pay now, locked in. An engineer comes out for about 20 to 30 minutes to confirm what they qualify for — nothing to buy. Say "20 to 50% cheaper" in those words. Then ask ONE question: does morning or afternoon work better for the visit?`;
+
+/** The short call's wrap-up, said once — when the time is accepted. */
+const SHORT_WRAP_UP = `In a few short sentences and with NO question: the engineer comes to their address at the agreed day and time; they will call before heading over; have the latest electric bill handy; make sure anyone else who helps decide is there too; and there is nothing out of pocket — the engineer just confirms what they qualify for. Then thank them by name and say goodbye.`;
+
+const SHORT_STAGE_INSTRUCTIONS: Partial<Record<Stage, string>> = {
+  opening: `STAGE: Opening — this is a SHORT call. Keep every turn to one or two short sentences.
+You have ALREADY greeted them and said who you are. Do not do it again.
+Ask these ONE per turn, in order, skipping anything already known:
+1. Their name.
+2. The best number to reach them — in case the call drops. Read it back once.
+3. Whether they own the home.
+If they ask what this is about, answer in one sentence — rate increases in their area and a government-backed program that may lower their electric bill — then carry on.
+Do NOT ask for an email, and do not pitch anything yet.`,
+
+  qualification: `STAGE: Two quick questions — this is a SHORT call.
+If you have not yet said why you are calling, say it in ONE sentence first: homes in their area are seeing rate increases, and you are checking whether theirs qualifies for SGIP, the Self-Generation Incentive Program — a government-backed program to lower the electric bill.
+Then ask, ONE per turn, skipping anything known:
+1. Their average monthly electric bill. If it is high, react in a few words.
+2. The street address, so the engineer comes to the right home.
+Ask NOTHING else — no roof, credit, shading, provider, email or decision-maker questions.
+The moment you have both — including when their latest reply just gave you the last one — ask nothing more and give the offer in that same turn: ${SHORT_OFFER}`,
+
+  value_pitch: `STAGE: The offer — this is a SHORT call. ${SHORT_OFFER}
+If their latest reply already says morning or afternoon, skip the offer's question and propose ONE specific day and time in that window from the list below instead.`,
+
+  appointment: `STAGE: Book the visit — this is a SHORT call.
+If they have not said morning or afternoon yet, ask which works better. Once they have, offer ONE specific day and time in that window from the list below, and in the same breath ask whether anything else is on then — "How's Tuesday at 2 — nothing else going on then?". If it does not work, offer one other time.
+When their latest reply accepts the time, ask nothing more and wrap up in that same turn: ${SHORT_WRAP_UP}`,
+
+  closing: `STAGE: Wrap up in ONE turn and ask NO questions — this is a SHORT call. ${SHORT_WRAP_UP}`,
+};
+
+/** What the short call still has to get, per stage. */
+const SHORT_OUTSTANDING: Partial<Record<Stage, Outstanding[]>> = {
+  opening: [
+    { has: (l) => Boolean(l.name), ask: 'their name' },
+    {
+      has: (l, b) => Boolean(l.phone) || b.phoneAsked,
+      ask: 'the best phone number to reach them, in case the call drops',
+    },
+    { has: (l) => l.homeowner_confirmed != null, ask: 'whether they own the home' },
+  ],
+  qualification: [
+    { has: (l) => l.monthly_bill != null, ask: 'their average monthly electricity bill' },
+    { has: (l) => Boolean(l.address), ask: 'the street address for the visit' },
+  ],
 };
 
 /** Compact, human-readable summary of what is known. Omits unknown fields entirely. */
@@ -256,11 +315,22 @@ function leadBlock(lead: Lead): string {
  * completeness gate then blocked qualification forever because the fields it
  * required were fields nothing in the conversation would ever fill.
  */
-const OUTSTANDING_BY_STAGE: Partial<Record<Stage, { has: (lead: Lead) => boolean; ask: string }[]>> =
+type Outstanding = { has: (lead: Lead, beats: DeliveredBeats) => boolean; ask: string };
+
+const OUTSTANDING_BY_STAGE: Partial<Record<Stage, Outstanding[]>> =
   {
     opening: [
       { has: (l) => Boolean(l.name), ask: 'their name' },
-      { has: (l) => l.homeowner_confirmed != null, ask: 'whether they are the homeowner' },
+      // Asked once is enough: declining is an answer (see `openingComplete`).
+      {
+        has: (l, b) => Boolean(l.phone) || b.phoneAsked,
+        ask: 'the best phone number to reach them, in case the call drops',
+      },
+      {
+        has: (l, b) => Boolean(l.email) || b.emailAsked,
+        ask: 'an email address to send the details to (optional — accept a no)',
+      },
+      { has: (l) => l.homeowner_confirmed != null, ask: 'whether they own the home' },
     ],
     qualification: [
       { has: (l) => Boolean(l.name), ask: 'their name' },
@@ -283,7 +353,10 @@ const OUTSTANDING_BY_STAGE: Partial<Record<Stage, { has: (lead: Lead) => boolean
     ],
     confirmation: [
       { has: (l) => Boolean(l.phone), ask: 'the best phone number to text the confirmation to' },
-      { has: (l) => Boolean(l.email), ask: 'an email address for the appointment details' },
+      {
+        has: (l, b) => Boolean(l.email) || b.emailAsked,
+        ask: 'an email address for the appointment details',
+      },
     ],
   };
 
@@ -307,17 +380,60 @@ function beatBlock(stage: Stage, beats: CallState['beats']): string | null {
   return null;
 }
 
-function outstandingBlock(stage: Stage, lead: Lead): string | null {
-  const items = OUTSTANDING_BY_STAGE[stage];
+function outstandingBlock(
+  stage: Stage,
+  lead: Lead,
+  beats: DeliveredBeats,
+  callLength: CallLength,
+): string | null {
+  const items = callLength === 'short' ? SHORT_OUTSTANDING[stage] : OUTSTANDING_BY_STAGE[stage];
   if (!items) return null;
 
-  const missing = items.filter((item) => !item.has(lead)).map((item) => item.ask);
+  const missing = items.filter((item) => !item.has(lead, beats)).map((item) => item.ask);
   if (missing.length === 0) return null;
 
-  return `STILL TO GET, in this order — ask the FIRST one only, this turn:\n${missing
+  // This list is built from what was known BEFORE their latest reply — the
+  // extractor reads that reply in parallel with this one being written. Told
+  // flatly "you do not have these", the model asked again for the detail the
+  // prospect had given it one sentence earlier.
+  return `STILL TO GET, in this order:\n${missing
     .map((m, i) => `${i + 1}. ${m}`)
-    .join('\n')}\nYou do not have these. Do not speak as though you do, and do not move past them.`;
+    .join('\n')}\nIf their latest reply just gave you the first of these, take it — acknowledge it in a few words (read a number or email back once) — and ask the next one instead. Never ask for something they have just told you. Otherwise ask the first one. One question only.`;
 }
+
+/**
+ * The facts the agent may state, condensed from docs/knowledge/company-context.md.
+ *
+ * Without these on the prompt the agent had only the current stage's script to
+ * draw on, so a plain question — "what's SGIP?", "is there a warranty?", "how
+ * long does the visit take?" — was either dodged or answered from the model's
+ * general knowledge, which is the one thing it must never do.
+ */
+const FACTS_BLOCK = `WHAT YOU CAN TELL THEM — the ONLY facts you may state
+- The program: SGIP, the Self-Generation Incentive Program — a government-backed program designed to help homeowners lower their electricity bill and protect against rate hikes.
+- Why now: high upkeep costs on the grid mean homes in the area are seeing rate increases and even power outages.
+- How it works: it's designed to potentially reduce the electric bill down to zero. They'd pay only for the solar equipment, and that payment is 20 to 50% cheaper than what they pay now — locked in, never goes up with inflation, and it adds value to the home. In some cases it's fully government-funded with nothing out of pocket, but never promise that.
+- It isn't a traditional loan — think of it as switching electric providers to a lower, locked-in rate.
+- Nothing to buy today. They just have to qualify, and the engineer determines whether they do and how much they'd save.
+- The visit: an engineer comes to the home — 10 to 15 minutes to evaluate it, another 10 to 15 to walk through what they qualify for and the savings. No rush, questions welcome. They call before heading over. Have the latest electric bill ready, and all decision makers there.
+- Eligibility: a single-family home, or they own the roof; a minimum credit score of 650 because it's government-sponsored (the engineer can verify it if they're unsure).
+- Installation: K2 racking, sealed top and bottom. A 10-year warranty on the roof and up to 10 years on workmanship. Works on all roof types — flat, tile, shingle. Panels are completely black and can go on a less visible side. A new roof can sometimes be added into the project — not promised.
+- Rentals: a landlord can install on a rental — the tenant keeps paying for power, the owner gets the tax credit and the added value. Renovations can sometimes be bundled in, potentially 30% covered through the federal tax credit.
+NOT KNOWN — never invent: prices, monthly payments, interest rates, the financing partner, panel brand, system size, exact rebate amounts, install timelines, company history or licensing, who filed the complaint or what the letter said.`;
+
+/**
+ * Whether the prospect asked something rather than answered something.
+ * Recognition rarely writes a question mark, so the opening words carry most of it.
+ */
+export function looksLikeQuestion(utterance: string): boolean {
+  const text = utterance.trim().toLowerCase();
+  if (text.endsWith('?')) return true;
+  return /^(?:so |and |but |okay |ok |wait |sorry |um |uh )?(?:what|what's|whats|how|why|who|who's|where|when|which|is|are|do|does|did|can|could|will|would|should|isn't|aren't|don't|doesn't|tell me|explain)\b/.test(
+    text,
+  ) || /\b(?:i'm wondering|i was wondering|can you tell me|what about|how about|how much|how long|is it free|is this a scam)\b/.test(text);
+}
+
+const QUESTION_BLOCK = `THEY JUST ASKED YOU SOMETHING. Answer it FIRST — directly, honestly, in one or two short sentences, using only WHAT YOU CAN TELL THEM. If the answer is not there, say you're not 100% sure and would rather not give them incorrect information, and that you'll make a note for the engineer. Do not dodge it and do not answer a different question. Only then continue with your one question for this beat.`;
 
 export interface BuildPromptOptions {
   state: CallState;
@@ -325,6 +441,10 @@ export interface BuildPromptOptions {
   objection: ObjectionMatch | null;
   /** Set when the agent must decline to answer and redirect. */
   forceFallback?: boolean;
+  /** What the prospect just said — used to notice that they asked a question. */
+  utterance?: string;
+  /** Which script the call runs. Defaults to `full`. */
+  callLength?: CallLength;
   /** Injectable so the calendar block is testable. */
   now?: Date;
 }
@@ -374,17 +494,20 @@ ${bookable}
 
 /** Assembles the system prompt for one conversational turn. */
 export function buildSystemPrompt(options: BuildPromptOptions): string {
-  const { state, identity, objection, forceFallback, now = new Date() } = options;
-  const sections: string[] = [personaBlock(identity)];
+  const { state, identity, objection, forceFallback, utterance, now = new Date() } = options;
+  const callLength = options.callLength ?? 'full';
+  const instructionsFor = (stage: Stage): string =>
+    (callLength === 'short' ? SHORT_STAGE_INSTRUCTIONS[stage] : undefined) ?? STAGE_INSTRUCTIONS[stage];
+  const sections: string[] = [personaBlock(identity), FACTS_BLOCK];
 
   // While handling an objection the agent still needs the goal of the stage it
   // will return to, otherwise it resolves the objection and then stalls.
   const workingStage =
     state.stage === 'objection_handling' ? (state.returnStage ?? 'rapport') : state.stage;
 
-  sections.push(STAGE_INSTRUCTIONS[state.stage]);
+  sections.push(instructionsFor(state.stage));
   if (state.stage === 'objection_handling' && state.returnStage) {
-    sections.push(`AFTER handling it, continue with this:\n${STAGE_INSTRUCTIONS[workingStage]}`);
+    sections.push(`AFTER handling it, continue with this:\n${instructionsFor(workingStage)}`);
   }
 
   if (objection) {
@@ -414,7 +537,14 @@ export function buildSystemPrompt(options: BuildPromptOptions): string {
 
   // Only where a date can actually be spoken — it is dead weight on every
   // earlier turn, and the prompt budget is 2,000 tokens.
-  if (workingStage === 'appointment' || workingStage === 'confirmation' || workingStage === 'closing') {
+  // A short call asks "morning or afternoon?" at the end of the offer, so the
+  // calendar is needed one stage earlier there.
+  const speaksTimes =
+    workingStage === 'appointment' ||
+    workingStage === 'confirmation' ||
+    workingStage === 'closing' ||
+    (callLength === 'short' && workingStage === 'value_pitch');
+  if (speaksTimes) {
     if (state.appointment) {
       // Read back, never re-derived. The recap used to invent a second time
       // several turns after the first was agreed, and the two did not match.
@@ -433,8 +563,11 @@ export function buildSystemPrompt(options: BuildPromptOptions): string {
 
   // Anchored to the stage the agent is actually working, so an objection
   // interrupt does not lose the detail it was in the middle of asking for.
-  const outstanding = outstandingBlock(workingStage, state.lead);
+  const outstanding = outstandingBlock(workingStage, state.lead, state.beats, callLength);
   if (outstanding) sections.push(outstanding);
+
+  // An objection already carries its own guidance on how to answer.
+  if (utterance && !objection && looksLikeQuestion(utterance)) sections.push(QUESTION_BLOCK);
 
   // Last, so it is the closest instruction to the reply. A beat the agent keeps
   // skipping is a beat the state machine will keep refusing to advance past.

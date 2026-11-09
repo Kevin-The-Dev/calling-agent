@@ -33,14 +33,25 @@
 ## Stage definitions
 
 ### 1. `OPENING` — script §1
-**Goal:** confirm you have the right person and that they own the property.
-**Says:** greeting by name (curious, slightly doubtful, not salesy) → who you are → "working right
-in the corner of your neighborhood… for the next couple of weeks" → "Am I speaking with the owner of
-[ADDRESS]?"
-**Captures:** `name`, `homeowner_confirmed`, `address_confirmed`
-**Must not:** mention solar, the program, or savings.
-**Exit guard:** homeowner confirmed (or the homeowner comes to the phone).
+**Goal:** find out who you are speaking with, how to reach them, and that they own the property.
+**Says:** who you are (curious, slightly doubtful, not salesy) → "working right in the corner of
+your neighborhood… for the next couple of weeks" → their name → the best number to reach them
+("just in case the call drops") → an email to send the details to (optional — a "no" is accepted
+warmly and never re-asked) → "Are you the owner of the home?"
+**Captures:** `name`, `phone`, `email`, `homeowner_confirmed`
+**Must not:** pitch solar or quote savings. If the prospect asks why a detail is needed or what the
+call is about, answer plainly in one sentence (rate increases in the area, a government-backed
+program that may lower the bill) and carry on.
+**Exit guard:** homeowner confirmed **and** name known **and** phone and email each either captured
+or already asked for. After six turns the guard relaxes to homeowner confirmed alone, so a prospect
+who will not give contact details is not asked forever.
 **Failure:** not the owner and unreachable → `DISQUALIFIED` (DQ-1).
+
+> **Decision, 2026-11-09 — contact details first.** The script captures the phone number only at
+> §7 and the email not at all. Web visitors drop off mid-call far more often than a booked phone
+> prospect, and a dropped call with no number is a lead nobody can follow up. The business owner
+> asked for name, phone and email straight after the introduction; §7 still confirms the number
+> (last four digits) before booking.
 
 ### 2. `RAPPORT` — script §2
 **Goal:** establish relevance and mild urgency; earn permission to ask questions.
@@ -116,7 +127,7 @@ close warmly regardless of outcome — never hang up on a DQ.
 
 | From | Event | To | Guard |
 | --- | --- | --- | --- |
-| `OPENING` | homeowner confirmed | `RAPPORT` | — |
+| `OPENING` | homeowner confirmed, contact details dealt with | `RAPPORT` | opening guard |
 | `OPENING` | not the homeowner, unreachable | `DISQUALIFIED` | DQ-1 |
 | `RAPPORT` | SGIP introduced, engaged | `QUALIFICATION` | — |
 | `QUALIFICATION` | completeness gate passes | `NEED_DISCOVERY` | §9 gate |

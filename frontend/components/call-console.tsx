@@ -12,7 +12,7 @@
  * is given (implementation.md R1), and the disclosure states plainly that the
  * caller is an AI and that the conversation is recorded.
  */
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import {
   CalendarCheckIcon,
   MicrophoneIcon,
@@ -22,7 +22,12 @@ import {
   SparkleIcon,
   WarningIcon,
 } from '@phosphor-icons/react/dist/ssr';
-import { useCall, type CallPhase } from '@/hooks/use-call';
+import {
+  useCall,
+  type CallPhase,
+  type SentenceStatus,
+  type TranscriptEntry,
+} from '@/hooks/use-call';
 import { getPublicEnv } from '@/lib/env';
 import { VoiceOrb } from '@/components/voice-orb';
 
@@ -87,7 +92,9 @@ export function CallConsole() {
   const empty = call.transcript.length === 0 && !call.interim;
 
   // -1 until the server reports a stage, so nothing lights up before the call.
-  const stageIndex = STAGE_RAIL.findIndex((s) => s.id === call.stage);
+  // Only the steps this call actually has — a short call skips several.
+  const rail = call.stages ? STAGE_RAIL.filter((s) => call.stages?.includes(s.id)) : STAGE_RAIL;
+  const stageIndex = rail.findIndex((s) => s.id === call.stage);
   const booked = call.outcome === 'booked';
 
   return (
@@ -164,7 +171,7 @@ export function CallConsole() {
       {/* ── Stage rail ─────────────────────────────────────────────────── */}
       <div className="px-5 pb-4 sm:px-6">
         <ol className="flex items-center gap-1" aria-label="Conversation progress">
-          {STAGE_RAIL.map((stage, i) => {
+          {rail.map((stage, i) => {
             const reached = stageIndex >= 0 && i <= stageIndex;
             const current = i === stageIndex;
             return (
@@ -217,7 +224,12 @@ export function CallConsole() {
             ) : (
               <>
                 {call.transcript.map((entry) => (
-                  <Bubble key={entry.id} speaker={entry.speaker} text={entry.text} />
+                  <Bubble
+                    key={entry.id}
+                    speaker={entry.speaker}
+                    text={entry.text}
+                    sentences={entry.sentences}
+                  />
                 ))}
                 {call.interim && <Bubble speaker="prospect" text={call.interim} interim />}
               </>
@@ -290,7 +302,9 @@ export function CallConsole() {
               }}
             >
               {booked ? <CalendarCheckIcon className="size-4" /> : <PhoneXIcon className="size-4" />}
-              {booked ? "You're booked in. We'll text the confirmation." : 'Thanks for your time.'}
+              {/* No confirmation text is sent (appointment-booking.md, open Q7),
+                  so none is promised here. The call-ahead is a real step. */}
+              {booked ? "You're booked in. The consultant will call before heading over." : 'Thanks for your time.'}
             </div>
             <button
               type="button"
@@ -310,13 +324,26 @@ export function CallConsole() {
   );
 }
 
+/**
+ * How each sentence of an agent reply looks relative to the voice.
+ * Spoken and speaking read at full strength; what is still to come is dimmed,
+ * so the eye can follow the voice without the text ever lagging it.
+ */
+const SENTENCE_CLASS: Record<SentenceStatus, string> = {
+  spoken: 'text-ink',
+  speaking: 'rounded bg-accent-wash text-ink [box-decoration-break:clone] px-0.5 -mx-0.5',
+  pending: 'text-ink-3',
+};
+
 function Bubble({
   speaker,
   text,
+  sentences,
   interim = false,
 }: {
   speaker: 'agent' | 'prospect';
   text: string;
+  sentences?: TranscriptEntry['sentences'];
   interim?: boolean;
 }) {
   const isAgent = speaker === 'agent';
@@ -338,7 +365,19 @@ function Bubble({
               : 'rounded-tr-sm bg-ink text-paper'
           } ${interim ? 'opacity-55 italic' : ''}`}
         >
-          {text}
+          {sentences && sentences.length > 0
+            ? sentences.map((sentence, i) => (
+                <Fragment key={i}>
+                  {i > 0 ? ' ' : null}
+                  <span
+                    className={`transition-colors duration-300 ${SENTENCE_CLASS[sentence.status]}`}
+                    aria-current={sentence.status === 'speaking' ? 'true' : undefined}
+                  >
+                    {sentence.text}
+                  </span>
+                </Fragment>
+              ))
+            : text}
         </p>
       </div>
     </div>

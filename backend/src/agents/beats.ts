@@ -29,7 +29,73 @@ import type { DeliveredBeats, TranscriptTurn } from '../types/domain.js';
 
 export type { DeliveredBeats };
 
-export const NO_BEATS: DeliveredBeats = { sgip: false, pitch: false };
+export const NO_BEATS: DeliveredBeats = {
+  sgip: false,
+  pitch: false,
+  phoneAsked: false,
+  emailAsked: false,
+  recap: false,
+};
+
+/**
+ * The closing recap's points (sales-script §8), as they are actually said.
+ * One definition, used both to end a short call on the recap and to decide at
+ * close whether the appointment counts as booked.
+ */
+export function recapPoints(
+  spoken: string,
+  address?: string | null,
+): {
+  recap_details_given: boolean;
+  reminded_confirmation_call: boolean;
+  reminded_utility_bill: boolean;
+  reminded_decision_makers: boolean;
+  reminded_no_cost: boolean;
+} {
+  const text = spoken.toLowerCase();
+  // The address's leading word — "123" of "123 Maple Street" — said back in
+  // the close is the recap restating the details, however it was introduced.
+  const addressKey = address?.trim().split(/\s+/)[0]?.toLowerCase();
+  const restatesAddress =
+    addressKey !== undefined && addressKey.length >= 2 && text.includes(addressKey);
+
+  return {
+    recap_details_given:
+      restatesAddress ||
+      /\b(?:recap|go over|run through|so we(?:'re| are) on the same page|just to (?:confirm|make sure))\b/.test(text),
+    reminded_confirmation_call: /\bcall (?:you )?(?:before|ahead|first)|before (?:he|she|they|heading)/.test(text),
+    reminded_utility_bill:
+      /\b(?:electric(?:ity)? |pg&e |power )?bill (?:ready|handy|on hand|nearby)|have (?:your|a copy of your) .{0,20}bill\b/.test(text),
+    // Said naturally it names them: "make sure you and Priya are both there".
+    reminded_decision_makers:
+      /\bdecision makers?\b|\b(?:everyone|anyone)(?: else)? (?:who|that) .{0,30}deci(?:d|sion)|\ball .{0,20}present\b|\b(?:both|all of you|everyone) .{0,25}\b(?:there|present|home)\b|\byou and \w+ .{0,25}\b(?:there|present|home)\b/.test(
+        text,
+      ),
+    reminded_no_cost: /\bnothing out of pocket\b|\bno (?:cost|charge)\b|\bnot cost(?:ing)? you\b/.test(text),
+  };
+}
+
+/** The four reminders — what makes a booking hold — all in one reply. */
+function deliversRecap(reply: string): boolean {
+  const p = recapPoints(reply);
+  return (
+    p.reminded_confirmation_call &&
+    p.reminded_utility_bill &&
+    p.reminded_decision_makers &&
+    p.reminded_no_cost
+  );
+}
+
+/**
+ * The agent asked for a number: a phone word followed, in the same sentence, by
+ * a question mark. "Number" alone is not enough — "what number is your bill
+ * at?" is not a request for a phone number.
+ */
+const PHONE_ASK_PATTERN =
+  /\b(?:phone|cell|mobile|best number|number (?:to|where|for|i can|we can)|reach you)\b[^.!?]*\?/i;
+
+/** The agent asked for an email address, in a question. */
+const EMAIL_ASK_PATTERN = /\be-?mail\b[^.!?]*\?/i;
 
 /**
  * The program, however the agent chose to word it.
@@ -59,6 +125,9 @@ export function beatsInReply(reply: string): DeliveredBeats {
   return {
     sgip: SGIP_PATTERN.test(reply),
     pitch: PITCH_PATTERNS.some((pattern) => pattern.test(reply)),
+    phoneAsked: PHONE_ASK_PATTERN.test(reply),
+    emailAsked: EMAIL_ASK_PATTERN.test(reply),
+    recap: deliversRecap(reply),
   };
 }
 
@@ -68,6 +137,9 @@ export function mergeBeats(previous: DeliveredBeats, reply: string): DeliveredBe
   return {
     sgip: previous.sgip || found.sgip,
     pitch: previous.pitch || found.pitch,
+    phoneAsked: previous.phoneAsked || found.phoneAsked,
+    emailAsked: previous.emailAsked || found.emailAsked,
+    recap: previous.recap || found.recap,
   };
 }
 

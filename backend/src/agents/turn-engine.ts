@@ -37,7 +37,13 @@ import {
 } from '../types/domain.js';
 import { isBookable, resolveLocalTime } from '../lib/local-time.js';
 import { mergeBeats } from './beats.js';
-import { applyGuardrails, safeFallback, type GuardrailViolation } from './guardrails.js';
+import { normalizeLead, quickFacts, withQuickFacts } from './quick-facts.js';
+import {
+  applyGuardrails,
+  safeFallback,
+  technicalFallback,
+  type GuardrailViolation,
+} from './guardrails.js';
 import { openingLine } from './opening.js';
 import { scoreLead } from './scoring.js';
 import { nextStage, resolveOutcome } from './state-machine.js';
@@ -283,6 +289,13 @@ export function runTurn(
   const objection =
     isCallStart || doNotContact ? null : matchObjection(utterance, state.stage, state.returnStage);
 
+  // Contact details the prospect has just spoken, read before the reply is
+  // written so the agent does not ask for a number it was given a second ago.
+  // See quick-facts.ts.
+  const lastAgentReply = history.findLast((turn) => turn.speaker === 'agent')?.content;
+  const facts = isCallStart ? {} : quickFacts(utterance, lastAgentReply);
+  const promptState: CallState = { ...state, lead: withQuickFacts(state.lead, facts) };
+
   // The generator always resolves this — generation failures fall back to a
   // safe line rather than rejecting, so a broken turn never breaks the call.
   let resolveResult: (r: TurnResult) => void;
@@ -318,7 +331,13 @@ export function runTurn(
       return;
     }
 
-    const systemPrompt = buildSystemPrompt({ state, identity, objection });
+    const systemPrompt = buildSystemPrompt({
+      state: promptState,
+      identity,
+      objection,
+      utterance,
+      callLength: env.CALL_LENGTH,
+    });
 
     // Fire the extractor now so it runs alongside generation rather than after.
     const extractionPromise = extract(provider, state, utterance, history).catch(
@@ -333,6 +352,8 @@ export function runTurn(
     const violations: GuardrailViolation[] = [];
     let spoken = '';
     let blocked = false;
+    /** The model errored or timed out — distinct from a guardrail block. */
+    let generationFailed = false;
     let firstTokenAt = 0;
     let tokensIn = 0;
     let tokensOut = 0;
@@ -412,15 +433,19 @@ export function runTurn(
       logger.error('generation_failed', {
         message: err instanceof Error ? err.message : String(err),
       });
-      blocked = true;
+      generationFailed = true;
     }
 
     let usedFallback = false;
-    if (blocked || spoken.trim().length === 0) {
+    if (blocked || generationFailed || spoken.trim().length === 0) {
       // Something was refused or the model failed. Say something safe rather
-      // than saying nothing — dead air ends calls.
+      // than saying nothing — dead air ends calls. Which line depends on why:
+      // a blocked claim gets "I'd rather not guess", a model that said nothing
+      // gets "say that again" (see `technicalFallback`).
       usedFallback = true;
-      const line = safeFallback(state.turnCount);
+      const line = blocked
+        ? safeFallback(state.turnCount)
+        : technicalFallback(state.turnCount);
       spoken = spoken.trim().length > 0 ? spoken : line;
       if (spoken === line) yield line;
       logger.warn('turn_fell_back', {
@@ -467,7 +492,9 @@ export function runTurn(
     extraction?: Extraction | null,
   ): TurnResult {
     const patch = extraction?.lead_patch ?? {};
-    const lead = { ...state.lead, ...stripEmpty(patch) };
+    // The extractor wins where it spoke; the quick facts keep a spoken number
+    // or email even when extraction failed altogether.
+    const lead = normalizeLead({ ...promptState.lead, ...stripEmpty(patch) });
 
     // The agreed slot, resolved server-side. Once set it is only replaced by
     // another agreed slot — a later turn that simply does not mention the time
@@ -499,11 +526,15 @@ export function runTurn(
       }
     }
 
+    // A short call offers the slot and asks "nothing else going on then?" in
+    // one breath, so accepting the slot is the answer to the conflict check.
+    const acceptedWithCheck = env.CALL_LENGTH === 'short';
     const appointment: CallState['appointment'] = proposed
       ? {
           at: proposed.toISOString(),
           timezone: zone,
           conflictChecked:
+            acceptedWithCheck ||
             extraction?.appointment_conflict_checked === true ||
             state.appointment?.conflictChecked === true,
         }
@@ -545,6 +576,8 @@ export function runTurn(
       doNotContact: forceDnc || extraction?.requests_do_not_contact === true,
       prospectEndedCall: forceHostile || extraction?.prospect_ended_call === true,
       maxAirCycles: env.MAX_AIR_CYCLES,
+      beatsBefore: state.beats,
+      callLength: env.CALL_LENGTH,
     });
 
     const objections: ObjectionRecord[] = objection

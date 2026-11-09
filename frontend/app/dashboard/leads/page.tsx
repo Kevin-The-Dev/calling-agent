@@ -154,9 +154,18 @@ export default async function LeadsPage({
                           {lead.name ?? 'Unnamed lead'}
                           {lead.do_not_contact && <Badge tone="alert">DNC</Badge>}
                         </span>
+                        {/* Phone and email side by side: they are how the team
+                            gets back to a lead, and showing only the first
+                            detail found hid the email whenever a phone existed. */}
                         <span className="mt-0.5 block truncate text-[12px] text-ink-3">
-                          {lead.address ?? lead.phone ?? lead.email ?? 'No contact details yet'}
+                          {[lead.phone, lead.email].filter(Boolean).join(' · ') ||
+                            'No contact details yet'}
                         </span>
+                        {lead.address && (
+                          <span className="block truncate text-[12px] text-ink-4">
+                            {lead.address as string}
+                          </span>
+                        )}
                       </Link>
                     </td>
                     <td className="tnum px-5 py-3 text-[13px]">

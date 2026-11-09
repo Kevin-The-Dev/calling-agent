@@ -52,7 +52,7 @@ describe('bill-swap detection', () => {
 
 describe('accumulation', () => {
   it('never un-delivers a beat', () => {
-    const after = mergeBeats({ sgip: true, pitch: false }, 'And who is your provider?');
+    const after = mergeBeats({ sgip: true, pitch: false, phoneAsked: false, emailAsked: false, recap: false }, 'And who is your provider?');
     expect(after.sgip).toBe(true);
   });
 
@@ -63,7 +63,7 @@ describe('accumulation', () => {
       { speaker: 'prospect', content: 'Never heard of it.', stage: 'rapport' },
     ];
 
-    expect(beatsFromHistory(history)).toEqual({ sgip: true, pitch: false });
+    expect(beatsFromHistory(history)).toEqual({ sgip: true, pitch: false, phoneAsked: false, emailAsked: false, recap: false });
   });
 
   it('ignores the prospect saying it — only the agent can deliver a beat', () => {
@@ -72,5 +72,37 @@ describe('accumulation', () => {
     ];
 
     expect(beatsFromHistory(history)).toEqual(NO_BEATS);
+  });
+});
+
+describe('contact asks', () => {
+  it.each([
+    'Just in case we get cut off, what is the best number to reach you?',
+    "And what's a good phone number for you?",
+    "What's the best cell to text you on?",
+  ])('recognises a phone ask: "%s"', (reply) => {
+    expect(beatsInReply(reply).phoneAsked).toBe(true);
+  });
+
+  it.each([
+    'What would you say your average monthly bill is?',
+    'Got it, so the number on your bill is around two forty.',
+    'I will put a note down about your phone.',
+  ])('does not mistake "%s" for a phone ask', (reply) => {
+    expect(beatsInReply(reply).phoneAsked).toBe(false);
+  });
+
+  it('recognises an email ask, and only as a question', () => {
+    expect(beatsInReply("What's a good email to send the details over to?").emailAsked).toBe(true);
+    expect(beatsInReply("No problem, we'll skip the email.").emailAsked).toBe(false);
+  });
+
+  it('rebuilds asks from the transcript so a cache miss does not ask again', () => {
+    const history: TranscriptTurn[] = [
+      { speaker: 'agent', content: 'And the best number to reach you?', stage: 'opening' },
+      { speaker: 'prospect', content: "I'd rather not.", stage: 'opening' },
+    ];
+    expect(beatsFromHistory(history).phoneAsked).toBe(true);
+    expect(beatsFromHistory(history).emailAsked).toBe(false);
   });
 });

@@ -3,6 +3,7 @@ import {
   checkCompletenessGate,
   evaluateDisqualifiers,
   nextStage,
+  OPENING_TURN_LIMIT,
 } from '../src/agents/state-machine.js';
 import { scoreLead } from '../src/agents/scoring.js';
 import type { CallState, Lead, Stage } from '../src/types/domain.js';
@@ -26,7 +27,7 @@ function makeState(overrides: Partial<CallState> = {}): CallState {
     doNotContact: false,
     outcome: null,
     appointment: null,
-    beats: { sgip: false, pitch: false },
+    beats: { sgip: false, pitch: false, phoneAsked: false, emailAsked: false, recap: false },
     ...overrides,
   };
 }
@@ -52,10 +53,13 @@ const SLOT = {
 
 describe('stage progression', () => {
   it('advances one stage at a time', () => {
-    const result = nextStage(makeState({ stage: 'opening' }), {
-      ...opts,
-      proposedStage: 'rapport',
-    });
+    const result = nextStage(
+      makeState({
+        stage: 'opening',
+        lead: { name: 'Sam', phone: '510-555-1212', email: 'sam@example.com', homeowner_confirmed: true },
+      }),
+      { ...opts, proposedStage: 'rapport' },
+    );
     expect(result.stage).toBe('rapport');
   });
 
@@ -63,7 +67,7 @@ describe('stage progression', () => {
     // The model asking to jump straight from rapport to booking is exactly the
     // failure the state machine exists to prevent. SGIP is already named here so
     // this isolates the no-skip rule from the beat gate below.
-    const result = nextStage(makeState({ stage: 'rapport', beats: { sgip: true, pitch: false } }), {
+    const result = nextStage(makeState({ stage: 'rapport', beats: { sgip: true, pitch: false, phoneAsked: false, emailAsked: false, recap: false } }), {
       ...opts,
       proposedStage: 'appointment',
     });
@@ -361,12 +365,13 @@ describe('full happy-path walk', () => {
       lead: {
         ...QUALIFIED_LEAD,
         phone: '5105551212',
+        email: 'sam@example.com',
         decision_makers: [{ name: 'Alex', will_attend: true }],
       },
       appointment: SLOT,
       // The walk assumes an agent that says what each beat requires; the two
       // gates below cover the one that does not.
-      beats: { sgip: true, pitch: true },
+      beats: { sgip: true, pitch: true, phoneAsked: false, emailAsked: false, recap: false },
     });
 
     for (const target of path) {
@@ -394,7 +399,7 @@ describe('spoken-beat gates', () => {
   });
 
   it('releases rapport on the turn that names SGIP', () => {
-    const state = makeState({ stage: 'rapport', beats: { sgip: true, pitch: false } });
+    const state = makeState({ stage: 'rapport', beats: { sgip: true, pitch: false, phoneAsked: false, emailAsked: false, recap: false } });
 
     // Both routes out: the model proposing it, and the server noticing.
     expect(nextStage(state, { ...opts, proposedStage: 'qualification' }).stage).toBe(
@@ -418,7 +423,7 @@ describe('spoken-beat gates', () => {
     const state = makeState({
       stage: 'value_pitch',
       lead: QUALIFIED_LEAD,
-      beats: { sgip: true, pitch: true },
+      beats: { sgip: true, pitch: true, phoneAsked: false, emailAsked: false, recap: false },
     });
 
     expect(nextStage(state, { ...opts, proposedStage: 'appointment' }).stage).toBe('appointment');
@@ -433,5 +438,68 @@ describe('spoken-beat gates', () => {
     });
 
     expect(result.stage).toBe('rapport');
+  });
+});
+
+describe('opening — contact details first', () => {
+  const CONTACT: Lead = {
+    name: 'Kevin',
+    phone: '510-555-1212',
+    email: 'kevin@example.com',
+    homeowner_confirmed: true,
+  };
+
+  it('holds the opening on a confirmed homeowner whose number was never asked for', () => {
+    // The old rule: "yes, I own it" ended the opening, and the call carried on
+    // with no way to reach the person on it if it dropped.
+    const result = nextStage(
+      makeState({ stage: 'opening', turnCount: 2, lead: { name: 'Kevin', homeowner_confirmed: true } }),
+      { ...opts, proposedStage: 'rapport' },
+    );
+    expect(result.stage).toBe('opening');
+  });
+
+  it('moves on once name, phone and email are captured and the home is theirs', () => {
+    const result = nextStage(makeState({ stage: 'opening', turnCount: 4, lead: CONTACT }), opts);
+    expect(result.stage).toBe('rapport');
+  });
+
+  it('accepts a declined email once it has been asked in an earlier turn', () => {
+    const { email: _omit, ...noEmail } = CONTACT;
+    const state = makeState({ stage: 'opening', turnCount: 4, lead: noEmail });
+    const asked = { sgip: false, pitch: false, phoneAsked: true, emailAsked: true, recap: false };
+
+    expect(nextStage({ ...state, beats: asked }, { ...opts, beatsBefore: asked }).stage).toBe(
+      'rapport',
+    );
+  });
+
+  it('does not count an ask made in the reply that has not been answered yet', () => {
+    const { email: _omit, ...noEmail } = CONTACT;
+    const justAsked = { sgip: false, pitch: false, phoneAsked: true, emailAsked: true, recap: false };
+    const before = { sgip: false, pitch: false, phoneAsked: true, emailAsked: false, recap: false };
+    const state = makeState({ stage: 'opening', turnCount: 4, lead: noEmail, beats: justAsked });
+
+    expect(nextStage(state, { ...opts, beatsBefore: before }).stage).toBe('opening');
+  });
+
+  it('gives up waiting for contact details after the turn limit', () => {
+    const result = nextStage(
+      makeState({
+        stage: 'opening',
+        turnCount: OPENING_TURN_LIMIT,
+        lead: { homeowner_confirmed: true },
+      }),
+      opts,
+    );
+    expect(result.stage).toBe('rapport');
+  });
+
+  it('still disqualifies a non-owner straight away', () => {
+    const result = nextStage(
+      makeState({ stage: 'opening', lead: { name: 'Kevin', homeowner_confirmed: false } }),
+      opts,
+    );
+    expect(result.stage).toBe('disqualified');
   });
 });

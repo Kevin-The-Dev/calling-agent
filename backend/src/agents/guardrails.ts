@@ -341,3 +341,23 @@ const SAFE_FALLBACKS = [
 export function safeFallback(seed: number): string {
   return SAFE_FALLBACKS[seed % SAFE_FALLBACKS.length] as string;
 }
+
+/**
+ * Replies used when the model produced nothing at all — an error or a timeout
+ * (fallback-responses.md §5).
+ *
+ * Distinct from `SAFE_FALLBACKS` on purpose. Those say "I'm not sure about
+ * that", which is right when a claim was blocked and nonsense as the answer to
+ * "I'm Kevin" — and a model outage made the agent say it to every single
+ * thing the prospect said. Asking them to say it again is what a person does
+ * when the line breaks up, and it keeps the conversation where it was.
+ */
+const TECHNICAL_FALLBACKS = [
+  'Sorry, you cut out for a second there. Could you say that one more time?',
+  'Sorry about that, the line went quiet on my end. What was that?',
+  'Apologies, I missed the last bit. Could you repeat that for me?',
+];
+
+export function technicalFallback(seed: number): string {
+  return TECHNICAL_FALLBACKS[seed % TECHNICAL_FALLBACKS.length] as string;
+}

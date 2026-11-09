@@ -6,7 +6,11 @@
  * because two of them gate qualification the call could not progress past it.
  */
 import { describe, expect, it } from 'vitest';
-import { buildExtractorPrompt, buildSystemPrompt } from '../src/knowledge/prompt-builder.js';
+import {
+  buildExtractorPrompt,
+  buildSystemPrompt,
+  looksLikeQuestion,
+} from '../src/knowledge/prompt-builder.js';
 import type { AgentIdentity } from '../src/knowledge/prompt-builder.js';
 import type { CallState, Lead, Stage } from '../src/types/domain.js';
 
@@ -37,7 +41,7 @@ function makeState(stage: Stage, lead: Lead = {}, beats?: CallState['beats']): C
     doNotContact: false,
     outcome: null,
     appointment: null,
-    beats: beats ?? { sgip: false, pitch: false },
+    beats: beats ?? { sgip: false, pitch: false, phoneAsked: false, emailAsked: false, recap: false },
   };
 }
 
@@ -59,7 +63,34 @@ describe('contact capture', () => {
   it('drops the name once it is known and moves to the next thing', () => {
     const prompt = build('opening', { name: 'Dave' });
     expect(prompt).not.toMatch(/1\. their name/);
-    expect(prompt).toMatch(/whether they are the homeowner/);
+    expect(prompt).toMatch(/1\. the best phone number to reach them/);
+  });
+
+  it('asks for the phone, then the email, then homeownership, straight after the name', () => {
+    const prompt = build('opening', { name: 'Dave' });
+    const phone = prompt.indexOf('the best phone number to reach them');
+    const email = prompt.indexOf('an email address to send the details to');
+    const owner = prompt.indexOf('whether they own the home');
+    expect(phone).toBeGreaterThan(-1);
+    expect(email).toBeGreaterThan(phone);
+    expect(owner).toBeGreaterThan(email);
+  });
+
+  it('does not ask for an email twice once the prospect has been asked', () => {
+    const prompt = build('opening', { name: 'Dave', phone: '510-555-1212' }, undefined, {
+      sgip: false,
+      pitch: false,
+      phoneAsked: true,
+      emailAsked: true, recap: false,
+    });
+    expect(prompt).not.toMatch(/an email address to send the details to/);
+    expect(prompt).toMatch(/1\. whether they own the home/);
+  });
+
+  it('never tells the agent to re-ask something the prospect may have just answered', () => {
+    const prompt = build('opening', { name: 'Dave' });
+    expect(prompt).toMatch(/If their latest reply just gave you the first of these/);
+    expect(prompt).not.toMatch(/You do not have these/);
   });
 
   it('asks for the address during qualification', () => {
@@ -170,5 +201,73 @@ describe('the agreed slot', () => {
     expect(prompt).toMatch(/TODAY is Wednesday, 2026-08-05/);
     expect(prompt).toMatch(/never a UTC\s+instant/);
     expect(prompt).toMatch(/appointment_date \/ appointment_time/);
+  });
+});
+
+describe('answering the prospect', () => {
+  it('always carries the facts the agent may state', () => {
+    for (const stage of ['opening', 'qualification', 'appointment'] as const) {
+      const prompt = build(stage);
+      expect(prompt).toMatch(/WHAT YOU CAN TELL THEM/);
+      expect(prompt).toMatch(/Self-Generation Incentive Program/);
+      expect(prompt).toMatch(/20 to 50% cheaper/);
+      expect(prompt).toMatch(/NOT KNOWN — never invent/);
+    }
+  });
+
+  it('tells the agent to answer a question before moving on', () => {
+    const prompt = buildSystemPrompt({
+      state: makeState('qualification', { name: 'Dave' }),
+      identity: IDENTITY,
+      objection: null,
+      utterance: 'what is SGIP exactly',
+    });
+    expect(prompt).toMatch(/THEY JUST ASKED YOU SOMETHING/);
+  });
+
+  it('does not add the question rule to a plain answer', () => {
+    const prompt = buildSystemPrompt({
+      state: makeState('qualification', { name: 'Dave' }),
+      identity: IDENTITY,
+      objection: null,
+      utterance: 'about two hundred a month',
+    });
+    expect(prompt).not.toMatch(/THEY JUST ASKED YOU SOMETHING/);
+  });
+});
+
+describe('looksLikeQuestion', () => {
+  it.each([
+    'what is SGIP exactly',
+    'how long does the visit take',
+    'is there a warranty on the roof',
+    'so how much does it cost',
+    'Why do you need my email?',
+    'I was wondering if this works on a tile roof',
+  ])('treats "%s" as a question', (text) => {
+    expect(looksLikeQuestion(text)).toBe(true);
+  });
+
+  it.each(['yes I own it', 'about two hundred a month', 'PG&E', 'my number is 510 555 1212'])(
+    'treats "%s" as an answer',
+    (text) => {
+      expect(looksLikeQuestion(text)).toBe(false);
+    },
+  );
+});
+
+describe('never re-asking the bill', () => {
+  it('tells discovery the amount is already known', () => {
+    const prompt = build('need_discovery', { monthly_bill: 280, utility_provider: 'PG&E' });
+    expect(prompt).toMatch(/never ask what the bill is/);
+    expect(prompt).toMatch(/Monthly bill: \$280/);
+  });
+
+  it('points the end of qualification at how the bill changed, not what it is', () => {
+    expect(build('qualification')).toMatch(/never ask for it again/);
+  });
+
+  it('sends a confirmed homeowner into the reason for the call, not a bill question', () => {
+    expect(build('opening')).toMatch(/go straight into WHY you are calling/);
   });
 });

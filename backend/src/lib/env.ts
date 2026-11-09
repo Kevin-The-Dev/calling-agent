@@ -74,7 +74,7 @@ const envSchema = z
     SUPABASE_JWT_SECRET: optionalString,
 
     // ── LLM ──────────────────────────────────────────────────────────────────
-    LLM_PROVIDER: z.enum(['glm', 'kimi', 'groq', 'gemini']).default('glm'),
+    LLM_PROVIDER: z.enum(['glm', 'kimi', 'groq', 'gemini', 'openrouter']).default('glm'),
     LLM_TEMPERATURE: z.coerce.number().min(0).max(2).default(0.6),
     LLM_MAX_TOKENS: intFromString(300),
     LLM_TIMEOUT_MS: intFromString(15_000),
@@ -109,6 +109,25 @@ const envSchema = z
     GEMINI_API_KEY: optionalString,
     GEMINI_MODEL: optionalString,
 
+    /**
+     * OpenRouter — one key, any model, billed against OpenRouter credits.
+     *
+     * The default model is DeepSeek V4 Flash. It is a "thinking" model whose
+     * default is to reason at length before answering, which on a phone call
+     * is seconds of dead air before the first word. `OPENROUTER_REASONING`
+     * therefore defaults to `none`: the call wants the answer, not the working.
+     */
+    OPENROUTER_API_KEY: optionalString,
+    OPENROUTER_BASE_URL: z.string().url().default('https://openrouter.ai/api/v1'),
+    OPENROUTER_MODEL: z.string().default('deepseek/deepseek-v4-flash'),
+    /** Falls back to OPENROUTER_MODEL when unset. */
+    OPENROUTER_EXTRACTOR_MODEL: optionalString,
+    OPENROUTER_REASONING: z.enum(['none', 'low', 'medium', 'high', 'default']).default('none'),
+    /** Which of the model's hosts OpenRouter prefers. Latency is what a caller hears. */
+    OPENROUTER_PROVIDER_SORT: z.enum(['latency', 'throughput', 'price']).default('latency'),
+    /** Sent as HTTP-Referer for OpenRouter's app attribution. Optional. */
+    OPENROUTER_SITE_URL: optionalString,
+
     // ── Voice (D8: browser-only for MVP) ─────────────────────────────────────
     STT_PROVIDER: z.enum(['browser', 'deepgram']).default('browser'),
     TTS_PROVIDER: z.enum(['browser', 'elevenlabs']).default('browser'),
@@ -142,6 +161,8 @@ const envSchema = z
 
     // ── Conversation guardrails ──────────────────────────────────────────────
     MAX_AIR_CYCLES: intFromString(2),
+    /** `short` (five questions, ~8 exchanges) or `full` (the whole script). */
+    CALL_LENGTH: z.enum(['short', 'full']).default('short'),
     MAX_LATE_OBJECTIONS: intFromString(4),
     SILENCE_TIMEOUT_MS: intFromString(6000),
 
@@ -177,6 +198,7 @@ const envSchema = z
     requireFor('kimi', 'KIMI_BASE_URL', env.KIMI_BASE_URL);
     requireFor('groq', 'GROQ_API_KEY', env.GROQ_API_KEY);
     requireFor('gemini', 'GEMINI_API_KEY', env.GEMINI_API_KEY);
+    requireFor('openrouter', 'OPENROUTER_API_KEY', env.OPENROUTER_API_KEY);
 
     if (env.STT_PROVIDER === 'deepgram' && !env.DEEPGRAM_API_KEY) {
       ctx.addIssue({
@@ -241,6 +263,37 @@ export function resetEnvCache(): void {
   cached = undefined;
 }
 
+/** The model the selected provider will speak with. */
+export function activeModel(env: Env): string {
+  switch (env.LLM_PROVIDER) {
+    case 'glm':
+      return env.GLM_MODEL;
+    case 'kimi':
+      return env.KIMI_MODEL ?? 'kimi-for-coding';
+    case 'groq':
+      return env.GROQ_MODEL ?? 'llama-3.3-70b-versatile';
+    case 'gemini':
+      return env.GEMINI_MODEL ?? 'gemini-2.5-flash';
+    case 'openrouter':
+      return env.OPENROUTER_MODEL;
+  }
+}
+
+function activeApiKey(env: Env): string | undefined {
+  switch (env.LLM_PROVIDER) {
+    case 'glm':
+      return env.GLM_API_KEY;
+    case 'kimi':
+      return env.KIMI_API_KEY;
+    case 'groq':
+      return env.GROQ_API_KEY;
+    case 'gemini':
+      return env.GEMINI_API_KEY;
+    case 'openrouter':
+      return env.OPENROUTER_API_KEY;
+  }
+}
+
 /**
  * A redacted view of the config, safe to log at boot.
  * Secrets are reported as set/unset — never printed.
@@ -251,13 +304,13 @@ export function describeEnv(env: Env): Record<string, string | number | boolean>
     nodeEnv: env.NODE_ENV,
     port: env.PORT,
     llmProvider: env.LLM_PROVIDER,
-    llmModel: env.LLM_PROVIDER === 'glm' ? env.GLM_MODEL : (env.KIMI_MODEL ?? 'n/a'),
+    llmModel: activeModel(env),
     sttProvider: env.STT_PROVIDER,
     ttsProvider: env.TTS_PROVIDER,
     supabaseUrl: env.SUPABASE_URL,
     supabaseServiceKey: mark(env.SUPABASE_SERVICE_ROLE_KEY),
     supabaseJwtSecret: mark(env.SUPABASE_JWT_SECRET),
-    llmApiKey: mark(env.LLM_PROVIDER === 'glm' ? env.GLM_API_KEY : env.KIMI_API_KEY),
+    llmApiKey: mark(activeApiKey(env)),
     companyName: env.COMPANY_NAME ?? '(unset — agent will use fallback)',
     consultantName: env.CONSULTANT_NAME ?? '(unset — agent says "one of our engineers")',
     allowedOrigins: env.ALLOWED_ORIGINS.join(', '),

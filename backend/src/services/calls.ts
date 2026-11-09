@@ -4,11 +4,11 @@
  * All writes go through the service-role client (database.md §5) — the browser
  * has no insert policy on any of these tables, by design.
  */
-import type { Env } from '../lib/env.js';
+import { activeModel, type Env } from '../lib/env.js';
 import { databaseError } from '../lib/errors.js';
 import type { Database, Json } from '../types/database.js';
 import type { CallState, Lead, Stage, TranscriptTurn } from '../types/domain.js';
-import { beatsFromHistory, NO_BEATS } from '../agents/beats.js';
+import { beatsFromHistory, NO_BEATS, recapPoints } from '../agents/beats.js';
 import { getServiceClient } from './supabase.js';
 
 type LeadUpdate = Database['public']['Tables']['leads']['Update'];
@@ -43,7 +43,7 @@ export async function startCall(env: Env, consentGiven: boolean): Promise<StartC
       consent_at: consentGiven ? new Date().toISOString() : null,
       stt_provider: env.STT_PROVIDER,
       tts_provider: env.TTS_PROVIDER,
-      llm_model: env.LLM_PROVIDER === 'glm' ? env.GLM_MODEL : (env.KIMI_MODEL ?? 'unknown'),
+      llm_model: activeModel(env),
     })
     .select('id')
     .single();
@@ -68,11 +68,14 @@ export async function loadCallState(env: Env, callId: string): Promise<CallState
 
   // Kept as one literal string: supabase-js infers the row type from the
   // select string, and concatenation collapses it to an error type.
-  const { data: call, error } = await db
-    .from('calls')
-    .select('id, lead_id, stage, return_stage, turn_count, early_objection_count, late_objection_count, qualification_score, buying_intent, outcome, status, appointment_at, appointment_timezone, leads(*)')
-    .eq('id', callId)
-    .maybeSingle();
+  const [{ data: call, error }, checkedSlot] = await Promise.all([
+    db
+      .from('calls')
+      .select('id, lead_id, stage, return_stage, turn_count, early_objection_count, late_objection_count, qualification_score, buying_intent, outcome, status, appointment_at, appointment_timezone, leads(*)')
+      .eq('id', callId)
+      .maybeSingle(),
+    loadConflictCheckedSlot(env, callId),
+  ]);
 
   if (error) throw databaseError('Could not read the call', { message: error.message });
   if (!call) return null;
@@ -99,15 +102,16 @@ export async function loadCallState(env: Env, callId: string): Promise<CallState
     disqualifiedReason: null,
     doNotContact: Boolean((lead as Record<string, unknown> | null)?.['do_not_contact']),
     outcome: (call.outcome as CallState['outcome']) ?? null,
-    // `conflictChecked` is deliberately not persisted: it only gates writing the
-    // appointment row at close, and a call that survived a cache miss can be
-    // re-confirmed cheaply. Persisting it would mean a schema column that is
-    // read exactly once.
+    // Read back from the `conflict_checked` event (see `recordConflictChecked`).
+    // It used to be dropped here on the theory that it could be re-confirmed —
+    // but the read that matters is the one at close, when the prospect has
+    // already hung up. On a serverless host that read usually lands on a
+    // fresh instance, so a booked call was routinely written down as "held".
     appointment: call.appointment_at
       ? {
           at: call.appointment_at as string,
           timezone: (call.appointment_timezone as string | null) ?? env.DEFAULT_TIMEZONE,
-          conflictChecked: false,
+          conflictChecked: sameInstant(checkedSlot, call.appointment_at as string),
         }
       : null,
     // Not a column: which beats were delivered is written in the transcript, and
@@ -118,15 +122,36 @@ export async function loadCallState(env: Env, callId: string): Promise<CallState
 }
 
 /** Recent turns for a call, oldest first, capped to the prompt's window. */
-export async function loadHistory(env: Env, callId: string): Promise<TranscriptTurn[]> {
+/**
+ * Upper bound on transcript rows read for one call — two rows per exchange,
+ * so 250 exchanges. Far beyond any real call; it only exists so a runaway call
+ * cannot turn one read into an unbounded one.
+ */
+export const MAX_HISTORY_ROWS = 500;
+
+/**
+ * The call's transcript, oldest first, ending at the most recent turn.
+ *
+ * Read newest-first and reversed. It used to read oldest-first with a limit of
+ * 40, which keeps the *beginning* of the call and drops the end: on a call
+ * longer than twenty exchanges the summary and the booking check never saw the
+ * closing recap (a call that booked was recorded as merely "held"), and a
+ * server instance picking the call up mid-way was handed the opening minutes as
+ * "recent history".
+ */
+export async function loadHistory(
+  env: Env,
+  callId: string,
+  limit = MAX_HISTORY_ROWS,
+): Promise<TranscriptTurn[]> {
   const { data } = await getServiceClient(env)
     .from('transcript_turns')
     .select('speaker, content, stage')
     .eq('call_id', callId)
-    .order('turn_index', { ascending: true })
-    .limit(40);
+    .order('turn_index', { ascending: false })
+    .limit(limit);
 
-  return (data ?? []).map((row) => ({
+  return (data ?? []).reverse().map((row) => ({
     speaker: row.speaker as TranscriptTurn['speaker'],
     content: row.content as string,
     stage: row.stage as TranscriptTurn['stage'],
@@ -351,6 +376,33 @@ function leadStatusFor(state: CallState): LeadUpdate['status'] {
 }
 
 /** Records a discrete event for analytics and the audit trail. */
+/** Two ISO timestamps naming the same moment, however each was formatted. */
+function sameInstant(a: string | null, b: string): boolean {
+  return a !== null && new Date(a).getTime() === new Date(b).getTime();
+}
+
+/**
+ * The slot the prospect last confirmed they are free for, if any.
+ * A check made for an earlier slot does not carry over to a rescheduled one.
+ */
+async function loadConflictCheckedSlot(env: Env, callId: string): Promise<string | null> {
+  const { data } = await getServiceClient(env)
+    .from('call_events')
+    .select('payload')
+    .eq('call_id', callId)
+    .eq('type', 'conflict_checked')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const at = (data?.payload as { at?: unknown } | undefined)?.at;
+  return typeof at === 'string' ? at : null;
+}
+
+/** Records that the prospect confirmed nothing would keep them from `at`. */
+export async function recordConflictChecked(env: Env, callId: string, at: string): Promise<void> {
+  await recordEvent(env, callId, 'conflict_checked', { at });
+}
+
 export async function recordEvent(
   env: Env,
   callId: string,
@@ -368,7 +420,11 @@ export async function recordEvent(
  * that constraint is that it cannot be satisfied by the agent merely having
  * reached the closing stage — the reminders are what make a booking hold.
  */
-export function recapFlagsFrom(history: TranscriptTurn[]): {
+export function recapFlagsFrom(
+  history: TranscriptTurn[],
+  /** The lead's address — a recap is what restates it. */
+  address?: string | null,
+): {
   recap_details_given: boolean;
   reminded_confirmation_call: boolean;
   reminded_utility_bill: boolean;
@@ -376,17 +432,17 @@ export function recapFlagsFrom(history: TranscriptTurn[]): {
   reminded_no_cost: boolean;
 } {
   const closing = history
-    .filter((t) => t.speaker === 'agent' && (t.stage === 'closing' || t.stage === 'confirmation'))
-    .map((t) => t.content.toLowerCase())
+    // A reply is stored under the stage it moved the call *to*, so the recap
+    // that ends a short call is stored as 'ended' — and must still count.
+    .filter(
+      (t) =>
+        t.speaker === 'agent' &&
+        (t.stage === 'closing' || t.stage === 'confirmation' || t.stage === 'ended'),
+    )
+    .map((t) => t.content)
     .join(' ');
 
-  return {
-    recap_details_given: /\b(?:recap|go over|so we(?:'re| are) on the same page|just to confirm)\b/.test(closing),
-    reminded_confirmation_call: /\bcall (?:you )?(?:before|ahead)|before (?:he|she|they|heading)/.test(closing),
-    reminded_utility_bill: /\b(?:electric(?:ity)? )?bill (?:ready|handy|on hand)|have (?:your|a copy of your) .{0,20}bill\b/.test(closing),
-    reminded_decision_makers: /\bdecision makers?\b|\beveryone (?:who|that) .{0,30}decide|\ball .{0,20}present\b/.test(closing),
-    reminded_no_cost: /\bnothing out of pocket\b|\bno (?:cost|charge)\b|\bnot cost(?:ing)? you\b/.test(closing),
-  };
+  return recapPoints(closing, address);
 }
 
 /**
@@ -407,7 +463,7 @@ async function writeAppointment(
   if (!appointment || !lead.address) return null;
 
   const db = getServiceClient(env);
-  const recap = recapFlagsFrom(history);
+  const recap = recapFlagsFrom(history, lead.address);
   const fullRecap = Object.values(recap).every(Boolean);
   const status = fullRecap && appointment.conflictChecked ? 'booked' : 'held';
 

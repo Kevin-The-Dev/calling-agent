@@ -18,6 +18,8 @@ import { createLogger } from '../lib/logger.js';
 import { signCallToken, verifyCallToken } from '../lib/call-token.js';
 import { identityFromEnv } from '../knowledge/prompt-builder.js';
 import { runTurn } from '../agents/turn-engine.js';
+import { checkEcho } from '../agents/echo-guard.js';
+import { cleanUtterance } from '../agents/quick-facts.js';
 import { resolveFinalOutcome } from '../agents/state-machine.js';
 import type { LlmProvider } from '../services/llm/index.js';
 import {
@@ -26,6 +28,7 @@ import {
   loadCallContext,
   loadHistory,
   persistTurn,
+  recordConflictChecked,
   recordEvent,
   startCall,
 } from '../services/calls.js';
@@ -35,7 +38,7 @@ import {
   writeCallContext,
 } from '../services/call-cache.js';
 import { normalizeMimeType, storeRecording } from '../services/recordings.js';
-import type { TranscriptTurn } from '../types/domain.js';
+import { stagesFor, type TranscriptTurn } from '../types/domain.js';
 
 const startSchema = z.object({
   consent: z.boolean(),
@@ -130,6 +133,9 @@ export function callRoutes(env: Env, provider: LlmProvider) {
     return c.json({
       callId,
       token,
+      // The steps this call will walk through, so the console's progress bar
+      // shows a short call as five steps rather than eight with gaps.
+      stages: stagesFor(env.CALL_LENGTH),
       config: {
         sttLanguage: env.STT_PROVIDER === 'browser' ? 'en-US' : 'en-US',
         silenceTimeoutMs: env.SILENCE_TIMEOUT_MS,
@@ -164,7 +170,33 @@ export function callRoutes(env: Env, provider: LlmProvider) {
     const previousStage = state.stage;
 
     const isCallStart = parsed.data.utterance === CALL_START_SENTINEL;
-    const utterance = isCallStart ? CALL_START_CUE : parsed.data.utterance;
+
+    // The agent hearing its own voice back through the microphone. Answering it
+    // is what makes the call ask the same question over and over.
+    const lastAgentReply = history.findLast((turn) => turn.speaker === 'agent')?.content;
+    const echo = isCallStart || !lastAgentReply
+      ? null
+      : checkEcho(parsed.data.utterance, [lastAgentReply]);
+
+    if (echo?.kind === 'echo') {
+      logger.info('echo_ignored', { callId, stage: state.stage });
+      // Nothing is generated, persisted, or advanced. The client drops the
+      // line it showed optimistically and hands the microphone back.
+      return streamSSE(c, async (stream) => {
+        await stream.writeSSE({ event: 'ignored', data: JSON.stringify({ reason: 'echo' }) });
+        await stream.writeSSE({ event: 'speech-end', data: '{}' });
+        await stream.writeSSE({
+          event: 'done',
+          data: JSON.stringify({ stage: state.stage, finished: false, outcome: state.outcome }),
+        });
+      });
+    }
+
+    // What the agent answers and the transcript keeps: the words with any
+    // echoed lead-in cut away, tidied into their written form.
+    const utterance = isCallStart
+      ? CALL_START_CUE
+      : cleanUtterance(echo?.utterance ?? parsed.data.utterance);
 
     const { sentences, result } = runTurn(env, provider, {
       state,
@@ -175,7 +207,20 @@ export function callRoutes(env: Env, provider: LlmProvider) {
     });
 
     return streamSSE(c, async (stream) => {
+      // The client withdraws a turn when the prospect turns out not to have
+      // finished their sentence: they paused, the pause was taken for the end of
+      // the turn, and they kept talking. The half-sentence comes back as part of
+      // the next request, so this one must leave no trace — no transcript row,
+      // no cached history containing a reply nobody heard.
+      const withdrawn = () => stream.aborted || c.req.raw.signal.aborted;
       try {
+        // The client showed the raw recognition; correct its line to what the
+        // agent actually answered — tidied, and with any echoed lead-in cut away.
+        if (echo?.kind === 'stripped') logger.info('echo_stripped', { callId, stage: state.stage });
+        if (!isCallStart && utterance !== parsed.data.utterance.trim()) {
+          await stream.writeSSE({ event: 'heard', data: JSON.stringify({ text: utterance }) });
+        }
+
         for await (const sentence of sentences) {
           await stream.writeSSE({ event: 'sentence', data: JSON.stringify({ text: sentence }) });
         }
@@ -187,6 +232,11 @@ export function callRoutes(env: Env, provider: LlmProvider) {
         await stream.writeSSE({ event: 'speech-end', data: '{}' });
 
         const turn = await result;
+
+        if (withdrawn()) {
+          logger.info('turn_withdrawn', { callId, stage: previousStage });
+          return;
+        }
 
         // The opening turn has no prospect speech — record it as a system
         // marker so turn indices stay contiguous and the transcript reads
@@ -247,6 +297,16 @@ export function callRoutes(env: Env, provider: LlmProvider) {
             rules: turn.violations.map((v) => v.rule),
           });
         }
+        // Kept outside the in-memory cache so that closing the call on another
+        // server instance still knows the slot was confirmed.
+        const checked = turn.state.appointment;
+        if (
+          checked?.conflictChecked &&
+          !(state.appointment?.conflictChecked && state.appointment.at === checked.at)
+        ) {
+          await recordConflictChecked(env, callId, checked.at);
+        }
+
         if (turn.state.stage !== previousStage) {
           await recordEvent(env, callId, 'stage_change', {
             from: previousStage,
@@ -316,7 +376,13 @@ export function callRoutes(env: Env, provider: LlmProvider) {
   /** Finalize the call. */
   app.post('/calls/:id/end', async (c) => {
     const callId = c.req.param('id');
-    const token = c.req.header('X-Call-Token');
+    // The query form exists for `navigator.sendBeacon`, which is the only
+    // request a closing tab reliably gets out and which cannot set headers.
+    // Without it a visitor who closed the tab mid-call left a call that was
+    // never summarized and a lead the dashboard showed as still in progress.
+    // The token is scoped to this one call and expires, so carrying it in the
+    // URL exposes nothing beyond the call it already authorizes.
+    const token = c.req.header('X-Call-Token') ?? c.req.query('token');
     if (!token) throw badRequest('Missing X-Call-Token header');
 
     const payload = await verifyCallToken(env.CALL_TOKEN_SECRET, token);

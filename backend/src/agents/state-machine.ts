@@ -7,9 +7,11 @@
  * here are what make the sales process actually a process.
  */
 import {
-  LINEAR_STAGES,
   TERMINAL_STAGES,
+  stagesFor,
+  type CallLength,
   type CallState,
+  type DeliveredBeats,
   type DqReason,
   type Lead,
   type Stage,
@@ -76,8 +78,57 @@ export function evaluateDisqualifiers(lead: Lead): DqReason | null {
   return null;
 }
 
-function indexOfLinear(stage: Stage): number {
-  return LINEAR_STAGES.indexOf(stage);
+/**
+ * After this many turns the opening hands over even with a contact detail
+ * missing. A prospect who will not give a name or number is still a prospect,
+ * and a call that loops on "and what's your number?" ends with nobody on it.
+ */
+export const OPENING_TURN_LIMIT = 6;
+
+/**
+ * Whether the opening has done its job: who they are, how to reach them, and
+ * that they own the home.
+ *
+ * Contact details come first, straight after the introduction, so a call that
+ * drops part-way still leaves a lead the team can phone back. A phone number
+ * or email counts as dealt with once it is known *or* has been asked for in an
+ * earlier turn — declining is an answer, and asking twice is pushy.
+ *
+ * `askedBefore` must be the beats from before the reply being folded in: an
+ * ask made in this very reply has not been answered yet.
+ */
+export function openingComplete(
+  lead: Lead,
+  askedBefore: DeliveredBeats,
+  turnCount: number,
+): boolean {
+  if (lead.homeowner_confirmed !== true) return false;
+  if (turnCount >= OPENING_TURN_LIMIT) return true;
+  return (
+    Boolean(lead.name) &&
+    (Boolean(lead.phone) || askedBefore.phoneAsked) &&
+    (Boolean(lead.email) || askedBefore.emailAsked)
+  );
+}
+
+/**
+ * What a short call must know before it moves from questions to the offer:
+ * the bill (what the offer is built on) and the address (an appointment cannot
+ * be saved without one).
+ */
+export function shortQualificationComplete(lead: Lead): boolean {
+  return typeof lead.monthly_bill === 'number' && Boolean(lead.address);
+}
+
+/** The short call's opening: name, a number to reach them, and that the home is theirs. */
+export function shortOpeningComplete(
+  lead: Lead,
+  askedBefore: DeliveredBeats,
+  turnCount: number,
+): boolean {
+  if (lead.homeowner_confirmed !== true) return false;
+  if (turnCount >= OPENING_TURN_LIMIT) return true;
+  return Boolean(lead.name) && (Boolean(lead.phone) || askedBefore.phoneAsked);
 }
 
 /**
@@ -94,9 +145,21 @@ export function nextStage(
     doNotContact?: boolean;
     prospectEndedCall?: boolean;
     maxAirCycles: number;
+    /**
+     * Beats as they stood before this turn's reply. Defaults to `state.beats`.
+     * The opening gate needs to know what had been asked *and answered*, which
+     * excludes anything asked in the reply that was just spoken.
+     */
+    beatsBefore?: DeliveredBeats;
+    /** Which script the call runs. Defaults to `full`. */
+    callLength?: CallLength;
   },
 ): TransitionResult {
+  const callLength = options.callLength ?? 'full';
+  const order = stagesFor(callLength);
+  const short = callLength === 'short';
   const { proposedStage, hasObjection, doNotContact, prospectEndedCall, maxAirCycles } = options;
+  const beatsBefore = options.beatsBefore ?? state.beats;
 
   // Already finished.
   if (TERMINAL_STAGES.includes(state.stage)) {
@@ -144,8 +207,10 @@ export function nextStage(
   }
 
   // 5. Guarded forward movement.
-  const current = indexOfLinear(state.stage);
+  const current = order.indexOf(state.stage);
   if (current === -1) return { stage: state.stage, returnStage: null };
+
+  if (short) return nextStageShort(state, beatsBefore);
 
   // Server-side auto-advance.
   //
@@ -155,13 +220,13 @@ export function nextStage(
   // qualification instructions and re-asking answered questions. When the
   // stage's own exit condition is objectively met, advance regardless of what
   // the model proposed.
-  const auto = autoAdvance(state);
+  const auto = autoAdvance(state, beatsBefore);
   const proposedRaw = proposedStage && proposedStage !== state.stage ? proposedStage : null;
   const proposed = proposedRaw ?? auto;
 
   if (!proposed) return { stage: state.stage, returnStage: null };
 
-  const proposedIndex = indexOfLinear(proposed);
+  const proposedIndex = order.indexOf(proposed);
 
   // Only backward move allowed: returning to qualification to fill a gap.
   if (proposedIndex !== -1 && proposedIndex < current) {
@@ -178,7 +243,7 @@ export function nextStage(
   // "appointment", and got handed the next stage without the pitch ever being
   // checked for.
   const skipping = proposedIndex !== current + 1;
-  const target = skipping ? LINEAR_STAGES[current + 1] : proposed;
+  const target = skipping ? order[current + 1] : proposed;
   if (!target) return { stage: state.stage, returnStage: null, rejectedProposal: proposed };
 
   const rejected = skipping ? { rejectedProposal: proposed } : {};
@@ -187,6 +252,16 @@ export function nextStage(
     returnStage: null,
     rejectedProposal: reason ?? proposed,
   });
+
+  // Gate: opening → rapport requires the prospect's contact details to have
+  // been dealt with. Without it a model that heard "yes, I own it" proposed
+  // rapport and the call went on with no way to reach the person on it.
+  if (
+    state.stage === 'opening' &&
+    !openingComplete(state.lead, beatsBefore, state.turnCount)
+  ) {
+    return hold();
+  }
 
   // Gate: rapport → qualification requires SGIP to have actually been named.
   //
@@ -221,13 +296,12 @@ export function nextStage(
  * The next stage when the current stage's objective is already satisfied.
  * Returns null when the agent still has work to do where it is.
  */
-function autoAdvance(state: CallState): Stage | null {
+function autoAdvance(state: CallState, beatsBefore: DeliveredBeats): Stage | null {
   const { lead, stage } = state;
 
   switch (stage) {
     case 'opening':
-      // The one thing the opening must establish.
-      return lead.homeowner_confirmed === true ? 'rapport' : null;
+      return openingComplete(lead, beatsBefore, state.turnCount) ? 'rapport' : null;
 
     case 'rapport':
       // Rapport is a delivery beat, not a data-gathering one — so the only
@@ -264,6 +338,54 @@ function autoAdvance(state: CallState): Stage | null {
   }
 }
 
+/**
+ * The short call's transitions.
+ *
+ * Every gate here is an objective fact — the bill is known, the slot was
+ * accepted — so the model's proposed stage is not consulted. And the call
+ * moves forward through as many stages as the facts allow in one go: a reply
+ * is written from the stage the call was on *before* the prospect's latest
+ * answer, so one answer often completes a stage and the agent, told what to do
+ * next, completes the following one in the same breath ("…123 Maple Street"
+ * → the offer). Advancing one stage per turn left the call behind its own
+ * conversation, and once behind it never caught up and never ended.
+ */
+function nextStageShort(state: CallState, beatsBefore: DeliveredBeats): TransitionResult {
+  let stage = state.stage;
+  for (let step = 0; step < 6; step += 1) {
+    // Over once the recap has been said — it asks nothing, so there is no
+    // answer to wait for.
+    if (stage === 'closing') {
+      return state.beats.recap
+        ? { stage: 'ended', returnStage: null, reason: 'recap_complete' }
+        : { stage, returnStage: null };
+    }
+    const next = autoAdvanceShort({ ...state, stage }, beatsBefore);
+    if (!next) break;
+    stage = next;
+  }
+  return { stage, returnStage: null };
+}
+
+/** The short call's equivalent of `autoAdvance`. */
+function autoAdvanceShort(state: CallState, beatsBefore: DeliveredBeats): Stage | null {
+  const { lead, stage } = state;
+  switch (stage) {
+    case 'opening':
+      return shortOpeningComplete(lead, beatsBefore, state.turnCount) ? 'qualification' : null;
+    case 'qualification':
+      return shortQualificationComplete(lead) ? 'value_pitch' : null;
+    case 'value_pitch':
+      // A prospect who has already accepted a time is past the offer, whether
+      // or not the agent said it in the words this checks for.
+      return state.beats.pitch || state.appointment !== null ? 'appointment' : null;
+    case 'appointment':
+      return state.appointment !== null ? 'closing' : null;
+    default:
+      return null;
+  }
+}
+
 function isEarly(state: CallState): boolean {
   const effective =
     state.stage === 'objection_handling' ? (state.returnStage ?? 'opening') : state.stage;
@@ -283,7 +405,11 @@ export function resolveOutcome(state: CallState, reason?: string): CallState['ou
     // 'partial' not 'booked': the booking service upgrades it only once an
     // appointment row actually satisfies its constraints. The agent saying
     // "you're all set" is not evidence that anything was written.
-    if ((state.lead.decision_makers ?? []).length > 0 || state.qualificationScore >= 50) {
+    if (
+      state.appointment !== null ||
+      (state.lead.decision_makers ?? []).length > 0 ||
+      state.qualificationScore >= 50
+    ) {
       return 'partial';
     }
     return 'callback';

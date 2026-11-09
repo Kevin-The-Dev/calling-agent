@@ -4,7 +4,7 @@
   "private": true,
   "description": "AI voice cold calling sales agent — MVP",
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.13.0"
   },
   "packageManager": "pnpm@11.10.0",
   "scripts": {
@@ -17,7 +17,7 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "pnpm --filter backend test",
+    "test": "pnpm --filter \"./{frontend,backend}\" test",
     "verify": "pnpm typecheck && pnpm lint && pnpm test",
     "db:bundle": "node scripts/build-migration-bundle.mjs",
     "db:push": "npx supabase db push",

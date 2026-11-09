@@ -8,7 +8,7 @@
  * set/unset only (claude.md §11).
  */
 import { Hono } from 'hono';
-import { describeEnv, type Env } from '../lib/env.js';
+import { activeModel, describeEnv, type Env } from '../lib/env.js';
 import { createLlmProvider } from '../services/llm/index.js';
 import { checkSupabaseHealth } from '../services/supabase.js';
 
@@ -60,7 +60,7 @@ export function healthRoutes(env: Env) {
           llm: {
             ok: llm.ok,
             provider: env.LLM_PROVIDER,
-            model: env.LLM_PROVIDER === 'glm' ? env.GLM_MODEL : (env.KIMI_MODEL ?? 'unknown'),
+            model: activeModel(env),
             latencyMs: llm.latencyMs,
             ...('error' in llm ? { error: llm.error } : {}),
           },

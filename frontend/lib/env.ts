@@ -44,7 +44,7 @@ const publicEnvSchema = z.object({
    * Lower feels faster but clips people who pause mid-sentence; see
    * voice/speech.ts for what this actually controls.
    */
-  endpointMs: z.number().int().min(200).max(3000).default(650),
+  endpointMs: z.number().int().min(200).max(3000).default(1200),
 });
 
 export type PublicEnv = z.infer<typeof publicEnvSchema>;
@@ -72,7 +72,7 @@ export function getPublicEnv(): PublicEnv {
     sttLanguage: process.env.NEXT_PUBLIC_STT_LANGUAGE,
     showTranscript: asBool(process.env.NEXT_PUBLIC_SHOW_TRANSCRIPT, true),
     requireConsent: asBool(process.env.NEXT_PUBLIC_REQUIRE_CONSENT, true),
-    endpointMs: asInt(process.env.NEXT_PUBLIC_ENDPOINT_MS, 650),
+    endpointMs: asInt(process.env.NEXT_PUBLIC_ENDPOINT_MS, 1200),
   });
 
   if (!result.success) {

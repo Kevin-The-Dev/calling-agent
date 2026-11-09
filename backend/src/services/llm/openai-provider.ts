@@ -33,6 +33,13 @@ export interface OpenAiProviderConfig {
    * needs this; GLM does not.)
    */
   useJsonModeForExtraction?: boolean;
+  /**
+   * Extra fields merged into every request body — provider-specific switches
+   * such as OpenRouter's `reasoning` and `provider` routing objects.
+   */
+  extraBody?: Record<string, unknown>;
+  /** Extra headers sent with every request. */
+  extraHeaders?: Record<string, string>;
 }
 
 interface OpenAiUsage {
@@ -83,10 +90,13 @@ export function createOpenAiProvider(config: OpenAiProviderConfig): LlmProvider 
       response = await fetch(endpoint, {
         method: 'POST',
         headers: {
+          ...config.extraHeaders,
           authorization: `Bearer ${config.apiKey}`,
           'content-type': 'application/json',
         },
-        body: JSON.stringify(body),
+        // The request's own fields win over the extras, so a provider switch
+        // can never overwrite the model, the messages, or the tool choice.
+        body: JSON.stringify({ ...config.extraBody, ...(body as Record<string, unknown>) }),
         signal,
       });
     } catch (err) {

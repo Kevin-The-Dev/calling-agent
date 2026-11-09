@@ -41,6 +41,32 @@ export const LINEAR_STAGES: Stage[] = [
 
 export const TERMINAL_STAGES: Stage[] = ['disqualified', 'ended'];
 
+/**
+ * How much of the script a call runs.
+ *
+ * - `full`  — every beat of the sales script: the letter, eight qualifying
+ *             questions, need discovery, decision makers, a three-step lock.
+ *             Around twenty exchanges.
+ * - `short` — five questions (name, phone, homeowner, bill, address), a short
+ *             offer, a time, and a one-turn recap. Around eight exchanges.
+ *             Everything needed to book a visit and nothing more.
+ */
+export type CallLength = 'short' | 'full';
+
+/** The stages a short call walks through, in order. */
+export const SHORT_STAGES: Stage[] = [
+  'opening',
+  'qualification',
+  'value_pitch',
+  'appointment',
+  'closing',
+];
+
+/** The forward order of stages for a call of the given length. */
+export function stagesFor(length: CallLength): Stage[] {
+  return length === 'short' ? SHORT_STAGES : LINEAR_STAGES;
+}
+
 /** Early objections use A.I.R.; later ones use the 6-step framework. */
 export const EARLY_STAGES: Stage[] = ['opening', 'rapport'];
 
@@ -194,6 +220,23 @@ export interface CallState {
 export interface DeliveredBeats {
   sgip: boolean;
   pitch: boolean;
+  /**
+   * The agent has asked for a phone number / an email address.
+   *
+   * Both are asked for early, right after the name, so a call that drops still
+   * leaves a contactable lead. A prospect may decline either; once asked, the
+   * agent must not ask again in the same beat, and nothing in the lead record
+   * can say "asked and declined" — so, like SGIP and the pitch, it is read off
+   * what the agent actually said.
+   */
+  phoneAsked: boolean;
+  emailAsked: boolean;
+  /**
+   * The closing recap's four reminders have all been said: they will call
+   * ahead, have the bill ready, decision makers present, nothing out of pocket.
+   * A short call ends on it.
+   */
+  recap: boolean;
 }
 
 export interface TranscriptTurn {

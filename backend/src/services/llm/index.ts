@@ -14,6 +14,26 @@ export type { LlmProvider, LlmMessage, StreamTextResult, ExtractResult } from '.
 /** Groq and Gemini are wired but not yet selected — see implementation.md R14. */
 const GROQ_DEFAULT_MODEL = 'llama-3.3-70b-versatile';
 
+/**
+ * OpenRouter's request switches.
+ *
+ * - `reasoning.effort: "none"` turns thinking off. A thinking model's default
+ *   is to reason before it answers, and the prospect hears that as silence.
+ * - `provider.sort` picks among the hosts serving the model — by default the
+ *   fastest to first token, because that is the delay a caller notices.
+ * - `provider.require_parameters` skips hosts that would silently ignore one
+ *   of the fields above (or the extractor's forced tool call) rather than
+ *   honour it.
+ */
+export function openRouterBody(env: Env): Record<string, unknown> {
+  return {
+    ...(env.OPENROUTER_REASONING === 'default'
+      ? {}
+      : { reasoning: { effort: env.OPENROUTER_REASONING, exclude: true } }),
+    provider: { sort: env.OPENROUTER_PROVIDER_SORT, require_parameters: true },
+  };
+}
+
 export function createLlmProvider(env: Env): LlmProvider {
   switch (env.LLM_PROVIDER) {
     case 'glm': {
@@ -73,6 +93,23 @@ export function createLlmProvider(env: Env): LlmProvider {
         timeoutMs: env.LLM_TIMEOUT_MS,
         defaultTemperature: env.LLM_TEMPERATURE,
         defaultMaxTokens: env.LLM_MAX_TOKENS,
+      });
+
+    case 'openrouter':
+      return createOpenAiProvider({
+        name: 'openrouter',
+        apiKey: env.OPENROUTER_API_KEY!,
+        baseUrl: env.OPENROUTER_BASE_URL,
+        model: env.OPENROUTER_MODEL,
+        extractorModel: env.OPENROUTER_EXTRACTOR_MODEL ?? env.OPENROUTER_MODEL,
+        timeoutMs: env.LLM_TIMEOUT_MS,
+        defaultTemperature: env.LLM_TEMPERATURE,
+        defaultMaxTokens: env.LLM_MAX_TOKENS,
+        extraBody: openRouterBody(env),
+        extraHeaders: {
+          'X-OpenRouter-Title': env.COMPANY_NAME ? `${env.COMPANY_NAME} voice agent` : 'Voice agent',
+          ...(env.OPENROUTER_SITE_URL ? { 'HTTP-Referer': env.OPENROUTER_SITE_URL } : {}),
+        },
       });
 
     case 'gemini':
