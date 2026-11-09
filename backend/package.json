@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Hono API for the AI voice sales agent — deployed as Vercel Functions",
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.13.0"
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",
